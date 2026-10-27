@@ -15,6 +15,7 @@ from .crypto import prepare_aes_oldmtp, derive_kd2_wrap_key, decrypt_aes_ige, ve
 from .tdata_parser import TDataParser
 from .dc_extractor import DCExtractor
 from .session_manager import SessionManager
+from .hardware import get_system_specs, get_optimal_worker_count, set_process_low_priority
 
 __all__ = [
     "prepare_aes_oldmtp",
@@ -24,4 +25,7 @@ __all__ = [
     "TDataParser",
     "DCExtractor",
     "SessionManager",
+    "get_system_specs",
+    "get_optimal_worker_count",
+    "set_process_low_priority",
 ]

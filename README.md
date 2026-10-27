@@ -166,6 +166,13 @@ Sessiyaning serverda tirikligini, akkaunt egasining ism-familiyasi, username, ID
 python modules/session_checker.py --session account.session
 ```
 
+### 6-qadam: Barcha Testlarni Ishga Tushirish (Unit & E2E Test Suite)
+Loyiha ichidagi barcha kriptografik funksiyalar, xotira hisoblashlari va to'liq tiklash zanjirini avtomatik sinovdan o'tkazish:
+```bash
+python tests/run_all_tests.py
+```
+Ushbu skript 10 ta alohida testni (kriptotahlil, AES-IGE roundtrip, RAM tahlili, KD2 KDF, real arxivlar va E2E to'liq zanjir) avtomatik bajaradi va hisobot beradi.
+
 ---
 
 ## 👥 Ikkita Akkauntni Bir Vaqtda Ishlatish (Telegram Portable)
@@ -214,6 +221,7 @@ Telegram_Security_Toolkit/
 ├── core/                          # Tizimning poydevori
 │   ├── __init__.py
 │   ├── crypto.py                  # KD2 Argon2id, MTProto AES-IGE KDF, AES-256-IGE
+│   ├── hardware.py                # Dinamik CPU oqimlari va RAM xotirani xavfsiz boshqarish
 │   ├── tdata_parser.py            # TDF$ formati, MD5 tekshiruvi, KD2 binar parslash
 │   ├── dc_extractor.py            # Multi-DC (DC 1, 2, 4, 5) kalitlarini ajratish
 │   └── session_manager.py         # SQLite .session yaratish va session <-> tdata
@@ -221,14 +229,21 @@ Telegram_Security_Toolkit/
 ├── modules/                       # Amaliy instrumentlar
 │   ├── __init__.py
 │   ├── harvester.py               # TData qidiruvchi va ixcham ZIP qiluvchi
-│   ├── cracker.py                 # 16+ yadroli multi-core KD2 brute-force
+│   ├── cracker.py                 # Ko'p oqimli adaptiv KD2 brute-force
 │   ├── session_extractor.py       # Shifrdan toza .session ajratuvchi
 │   ├── session_to_tdata.py        # .session faylini parolsiz tdata ga aylantiruvchi
 │   └── session_checker.py         # Sessiya tirikligi va profil ma'lumotlarini tekshiruvchi
 │
-└── patches/                       # Python 3.13+ moslashuvchanlik paketi
-    ├── README.md                  # Python 3.13 dagi xato sabablari va tahlili
-    └── patch_opentele.py          # Opentele kutubxonasini avtomatik tuzatuvchi skript
+├── patches/                       # Python 3.13+ moslashuvchanlik paketi
+│   ├── README.md                  # Python 3.13 dagi xato sabablari va tahlili
+│   └── patch_opentele.py          # Opentele kutubxonasini avtomatik tuzatuvchi skript
+│
+└── tests/                         # Avtomatlashtirilgan testlar to'plami
+    ├── test_crypto.py             # Kriptografik primitivlar testi
+    ├── test_hardware.py           # Uskuna va xotira boshqaruvi testi
+    ├── test_parser_and_extractor.py # Real arxivlar va kalitlar testi
+    ├── test_e2e_pipeline.py       # To'liq End-to-End tiklash zanjiri testi
+    └── run_all_tests.py           # Barcha testlarni bitta buyruqda ishga tushiruvchi
 ```
 
 ---

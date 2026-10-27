@@ -70,19 +70,36 @@ def extract_session_from_backup(
     else:
         raise ValueError("Yo --passcode yoki --key parametri ko'rsatilishi shart!")
 
-    # 3. Decrypt primary session file
-    first_s_name = list(session_files.keys())[0]
-    session_s_raw = session_files[first_s_name]
-    print(f"📦 Sessiya fayli shifrdan yechilmoqda: {first_s_name}...")
+    # 3. Decrypt and scan all session files for active DC keys
+    print(f"📦 Arxivdagi sessiya fayllari tahlil qilinmoqda ({len(session_files)} ta)...")
+    valid_sessions: Dict[str, Dict[int, bytes]] = {}
 
-    all_dc_keys = DCExtractor.extract_all_dc_keys(session_s_raw, local_key)
-    print(f"🌐 Topilgan DC kalitlari soni: {len(all_dc_keys)} ta")
-    for dc_id, k_data in all_dc_keys.items():
-        print(f"   - DC {dc_id}: {k_data[:16].hex()}... ({len(k_data)} bayt)")
+    for s_name, s_raw in session_files.items():
+        try:
+            dc_keys = DCExtractor.extract_all_dc_keys(s_raw, local_key)
+            if dc_keys:
+                valid_sessions[s_name] = dc_keys
+        except Exception:
+            continue
+
+    if not valid_sessions:
+        raise ValueError(
+            "Sessiya fayllari ichidan birorta ham faol MTProto AuthKey topilmadi! "
+            "Parol noto'g'ri bo'lishi yoki sessiya tozalangan bo'lishi mumkin."
+        )
+
+    print(f"✅ Faol avtorizatsiyaga ega akkauntlar soni: {len(valid_sessions)} ta")
+    for s_name, keys in valid_sessions.items():
+        print(f"   👉 Akkaunt: {Path(s_name).name} | DC kalitlari: {list(keys.keys())}")
+
+    # Pick the target account (first active one by default)
+    chosen_s_name = list(valid_sessions.keys())[0]
+    all_dc_keys = valid_sessions[chosen_s_name]
+    print(f"\nTanlangan akkaunt: {Path(chosen_s_name).name}")
 
     if target_dc not in all_dc_keys:
-        fallback_dc = list(all_dc_keys.keys())[0]
-        print(f"⚠️ DC {target_dc} topilmadi, DC {fallback_dc} tanlanmoqda.")
+        fallback_dc = 2 if 2 in all_dc_keys else list(all_dc_keys.keys())[0]
+        print(f"⚠️ So'ralgan DC {target_dc} topilmadi, DC {fallback_dc} tanlandi.")
         target_dc = fallback_dc
 
     auth_key = all_dc_keys[target_dc]

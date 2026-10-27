@@ -26,10 +26,14 @@ if str(PARENT_DIR) not in sys.path:
 
 from core.tdata_parser import TDataParser, KD2Info
 from core.crypto import verify_kd2_candidate
+from core.hardware import get_system_specs, get_optimal_worker_count, set_process_low_priority
 
 
 # Top-level worker function for multiprocessing pickling
 def _worker_check_batch(args: Tuple[List[str], bytes, bytes, bytes, int, int]) -> Optional[Tuple[str, bytes]]:
+    # Set low process priority so the OS UI and other tasks remain completely smooth
+    set_process_low_priority()
+
     batch, salt, key128, ciphertext, time_c, mem_c = args
     for candidate in batch:
         ok, local_key = verify_kd2_candidate(
@@ -48,11 +52,15 @@ def _worker_check_batch(args: Tuple[List[str], bytes, bytes, bytes, int, int]) -
 class KD2Cracker:
     """
     Multithreaded / Multiprocessing Brute-force cracker for Telegram KD2.
+    Dynamically scales workers according to CPU threads and available physical RAM.
     """
 
     def __init__(self, kd2_info: KD2Info, max_workers: Optional[int] = None):
         self.kd2 = kd2_info
-        self.max_workers = max_workers or os.cpu_count() or 4
+        self.max_workers, self.hardware_reason = get_optimal_worker_count(
+            memory_per_worker_mb=96,
+            user_override=max_workers,
+        )
 
     @classmethod
     def from_source(cls, source: Union[str, Path], max_workers: Optional[int] = None) -> "KD2Cracker":
@@ -70,18 +78,28 @@ class KD2Cracker:
     def crack(
         self,
         candidates: List[str],
-        batch_size: int = 25,
+        batch_size: Optional[int] = None,
         output_dir: Optional[Union[str, Path]] = None,
     ) -> Optional[Tuple[str, bytes]]:
         out_dir = Path(output_dir) if output_dir else Path.cwd()
         total = len(candidates)
+        if total == 0:
+            print("⚠️ Tekshirish uchun kombinatsiyalar ro'yxati bo'sh!")
+            return None
 
+        # Auto-compute dynamic batch size based on candidates and workers
+        if batch_size is None or batch_size <= 0:
+            batch_size = max(1, min(50, total // (self.max_workers * 4)))
+
+        specs = get_system_specs()
         print("=" * 65)
         print("Telegram KD2 Argon2id Multi-Core Cracker")
-        print(f"Jami kombinatsiyalar : {total:,}")
-        print(f"Faol CPU yadrolari   : {self.max_workers}")
-        print(f"Argon2 xotira hajmi  : {self.kd2.memory_cost // 1024} MB per attempt")
-        print(f"Argon2 iteratsiyasi  : {self.kd2.time_cost} qadam")
+        print(f"Tizim               : {specs['os']} {specs['release']} ({specs['arch']})")
+        print(f"Jami kombinatsiyalar: {total:,}")
+        print(f"Hardware tahlili    : {self.hardware_reason}")
+        print(f"Paket hajmi (batch) : {batch_size} ta har bir topshiriqqa")
+        print(f"Argon2 xotira sarfi : {self.kd2.memory_cost // 1024} MB per attempt")
+        print(f"Argon2 qadamlari    : {self.kd2.time_cost} iteratsiya")
         print("=" * 65)
 
         t0 = time.time()

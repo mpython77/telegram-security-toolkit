@@ -131,11 +131,24 @@ class TDataParser:
             kd_raw = zf.read(kd_files[0])
             kd2_info = cls.parse_kd2(kd_raw)
 
-            # Find all 16-character .s files (e.g. D877F783D5D3EF8Cs)
+            # Detect genuine account session files:
+            # In Telegram Desktop, an authentic session file <16_hex>s ALWAYS has
+            # an accompanying companion folder <16_hex> in the same directory.
+            # Files inside <16_hex>/ are internal cache/maps and must be filtered out.
             for name in namelist:
                 basename = Path(name).name
                 if len(basename) == 17 and basename.endswith("s"):
-                    session_files[basename] = zf.read(name)
+                    companion_prefix = name[:-1] + "/"
+                    has_companion = any(n.startswith(companion_prefix) for n in namelist)
+                    if has_companion:
+                        session_files[name] = zf.read(name)
+
+            # Fallback: if no companion directory found (e.g. flat single archive)
+            if not session_files:
+                for name in namelist:
+                    basename = Path(name).name
+                    if len(basename) == 17 and basename.endswith("s"):
+                        session_files[name] = zf.read(name)
 
         return kd2_info, session_files
 
@@ -150,14 +163,26 @@ class TDataParser:
 
         kd_path = dir_path / "key_datas"
         if not kd_path.exists():
-            raise ValueError(f"key_datas topilmadi: {kd_path}")
+            # Try searching in subfolders (e.g. if root was passed)
+            nested_kd = list(dir_path.rglob("key_datas"))
+            if nested_kd:
+                kd_path = nested_kd[0]
+            else:
+                raise ValueError(f"key_datas topilmadi: {dir_path}")
 
         kd_raw = kd_path.read_bytes()
         kd2_info = cls.parse_kd2(kd_raw)
 
         session_files = {}
-        for item in dir_path.iterdir():
+        for item in dir_path.rglob("*"):
             if item.is_file() and len(item.name) == 17 and item.name.endswith("s"):
-                session_files[item.name] = item.read_bytes()
+                companion_dir = item.parent / item.name[:-1]
+                if companion_dir.exists() and companion_dir.is_dir():
+                    session_files[str(item.relative_to(dir_path))] = item.read_bytes()
+
+        if not session_files:
+            for item in dir_path.iterdir():
+                if item.is_file() and len(item.name) == 17 and item.name.endswith("s"):
+                    session_files[item.name] = item.read_bytes()
 
         return kd2_info, session_files
