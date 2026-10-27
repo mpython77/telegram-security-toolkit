@@ -1,0 +1,5 @@
+telethon>=1.36.0
+tgcrypto>=1.2.5
+argon2-cffi>=23.1.0
+pycryptodome>=3.20.0
+opentele>=1.15.1
