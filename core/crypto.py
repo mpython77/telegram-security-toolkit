@@ -57,6 +57,23 @@ def derive_kd2_wrap_key(
     )
 
 
+def derive_pbkdf2_wrap_key(
+    passcode: str,
+    salt: bytes,
+    legacy: bool = False,
+) -> bytes:
+    """
+    Derives the 256-byte wrap_key using Telegram Desktop's standard/legacy PBKDF2-HMAC-SHA512.
+    Used when no local passcode is set (iterations=1) or in PBKDF2 passcode format (iterations=100000).
+    """
+    pwd_bytes = passcode.encode("utf-8")
+    iterations = 1 if len(pwd_bytes) == 0 else 100000
+    if legacy:
+        return hashlib.pbkdf2_hmac("sha512", pwd_bytes, salt, iterations, 256)
+    hash_key = hashlib.sha512(salt + pwd_bytes + salt).digest()
+    return hashlib.pbkdf2_hmac("sha512", hash_key, salt, iterations, 256)
+
+
 def decrypt_aes_ige(ciphertext: bytes, key: bytes, iv: bytes) -> bytes:
     """
     Decrypts ciphertext using AES-256-IGE via optimized C implementation (tgcrypto).
@@ -78,12 +95,25 @@ def verify_kd2_candidate(
     ciphertext: bytes,
     time_cost: int = 8,
     memory_cost: int = 65536,
+    kdf_id: int = 1,
 ) -> Tuple[bool, Optional[bytes]]:
     """
-    Verifies a passcode candidate against KD2 encrypted payload.
+    Verifies a passcode candidate against KD2 (Argon2id) or PBKDF2 encrypted payload.
     Returns (True, local_key) if successful, otherwise (False, None).
     """
     try:
+        if kdf_id == 0 or memory_cost == 0:
+            # Try standard PBKDF2 (sha512(salt + pass + salt)) then legacy PBKDF2
+            for is_legacy in (False, True):
+                wrap_key = derive_pbkdf2_wrap_key(passcode, salt, legacy=is_legacy)
+                aes_key, aes_iv = prepare_aes_oldmtp(wrap_key, key128)
+                decrypted = decrypt_aes_ige(ciphertext, aes_key, aes_iv)
+                if hashlib.sha1(decrypted).digest()[:16] == key128:
+                    size = struct.unpack_from("<I", decrypted, 0)[0]
+                    local_key = decrypted[4 : 4 + size]
+                    return True, local_key
+            return False, None
+
         wrap_key = derive_kd2_wrap_key(passcode, salt, time_cost=time_cost, memory_cost=memory_cost)
         aes_key, aes_iv = prepare_aes_oldmtp(wrap_key, key128)
         decrypted = decrypt_aes_ige(ciphertext, aes_key, aes_iv)

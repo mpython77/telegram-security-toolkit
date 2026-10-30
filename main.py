@@ -19,11 +19,11 @@ if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
 
 from patches.patch_opentele import apply_patch
-from modules.harvester import main as run_harvester
-from modules.cracker import main as run_cracker, KD2Cracker
-from modules.session_extractor import main as run_extractor, extract_session_from_backup
-from modules.session_to_tdata import main as run_converter, convert_session
-from modules.session_checker import main as run_checker, check_session_cli
+from modules.harvester import main as run_harvester_cli, run_harvest
+from modules.cracker import main as run_cracker_cli, KD2Cracker
+from modules.session_extractor import main as run_extractor_cli, extract_session_from_backup
+from modules.session_to_tdata import main as run_converter_cli, convert_session
+from modules.session_checker import main as run_checker_cli, check_session_cli
 
 
 BANNER = r"""
@@ -35,6 +35,20 @@ BANNER = r"""
    |_| |_____\____|_| \_\   |_|\___/ \___/ |_|_|\_\_|\__|
    Telegram Desktop Security, Forensics & Recovery Toolkit
 ======================================================================
+"""
+
+HELP_TEXT = """
+Telegram Desktop Security, Forensics & Recovery Toolkit - CLI Yordam
+
+Foydalanish:
+  python main.py                         Interaktiv menyuni ishga tushirish
+  python main.py --harvest [opsiyalar]   TData qidirish va ixcham ZIP arxiv yaratish
+  python main.py --crack   [opsiyalar]   KD2 / PBKDF2 parolni multi-core sindirish
+  python main.py --extract [opsiyalar]   Arxiv/tdata dan Telethon .session ajratish
+  python main.py --convert [opsiyalar]   .session faylini parolsiz toza tdata qilish
+  python main.py --check   [opsiyalar]   .session faolligini va profilni tekshirish
+  python main.py --patch                 Python 3.13/3.14+ OpenTele patchini o'rnatish
+  python main.py --test                  Barcha avtomatlashtirilgan testlarni bajarish
 """
 
 
@@ -50,100 +64,124 @@ def interactive_menu():
         print("  [0] ❌ Chiqish")
         print("=" * 70)
 
-        choice = input("Tanlovingizni kiriting [0-6]: ").strip()
+        try:
+            choice = input("Tanlovingizni kiriting [0-6]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nDastur yakunlandi. Xayr!")
+            break
 
         if choice == "0":
             print("\nDastur yakunlandi. Xayr!")
             break
 
-        elif choice == "1":
-            print("\n--- 1. TData Harvester ---")
-            run_harvester()
+        try:
+            if choice == "1":
+                print("\n--- 1. TData Harvester ---")
+                out_dir = input("ZIP saqlanadigan papka [standart: joriy papka]: ").strip().strip('"') or "."
+                custom_p = input("Maxsus tdata yo'li (avtomatik qidirish uchun bo'sh qoldiring): ").strip().strip('"') or None
+                run_harvest(output_dir=out_dir, custom_path=custom_p)
 
-        elif choice == "2":
-            print("\n--- 2. KD2 Passcode Cracker ---")
-            src = input("ZIP arxiv yoki tdata papkasi yo'lini kiriting: ").strip().strip('"')
-            if not src:
-                print("❌ Manba kiritilmadi!")
-                continue
-            mode = input("Rejimni tanlang (1: 4-xonali PIN [0000-9999], 2: Maxsus oraliq, 3: Wordlist) [1]: ").strip()
-            
-            candidates = []
-            if mode == "2":
-                start_n = int(input("Boshlanish soni (masalan: 1000): ").strip())
-                end_n = int(input("Tugash soni (masalan: 2000): ").strip())
-                candidates = [f"{i:04d}" for i in range(start_n, end_n + 1)]
-            elif mode == "3":
-                w_path = input("Wordlist .txt fayl yo'li: ").strip().strip('"')
-                candidates = Path(w_path).read_text(encoding="utf-8", errors="ignore").splitlines()
+            elif choice == "2":
+                print("\n--- 2. KD2 Passcode Cracker ---")
+                src = input("ZIP arxiv yoki tdata papkasi yo'lini kiriting: ").strip().strip('"')
+                if not src:
+                    print("❌ Manba kiritilmadi!")
+                    continue
+                mode = input(
+                    "Rejimni tanlang (1: 4-xonali PIN [0000-9999], 2: 6-xonali PIN [000000-999999], "
+                    "3: Maxsus oraliq, 4: Wordlist) [1]: "
+                ).strip()
+
+                candidates = []
+                if mode == "2":
+                    candidates = [f"{i:06d}" for i in range(1000000)]
+                elif mode == "3":
+                    start_n = int(input("Boshlanish soni (masalan: 1000): ").strip())
+                    end_n = int(input("Tugash soni (masalan: 2000): ").strip())
+                    width = max(4, len(str(end_n)))
+                    candidates = [f"{i:0{width}d}" for i in range(start_n, end_n + 1)]
+                elif mode == "4":
+                    w_path = input("Wordlist .txt fayl yo'li: ").strip().strip('"')
+                    candidates = Path(w_path).read_text(encoding="utf-8", errors="ignore").splitlines()
+                else:
+                    candidates = [f"{i:04d}" for i in range(10000)]
+
+                cracker = KD2Cracker.from_source(src)
+                cracker.crack(candidates)
+
+            elif choice == "3":
+                print("\n--- 3. Session Extractor ---")
+                src = input("ZIP arxiv yoki tdata papkasi yo'li: ").strip().strip('"')
+                pwd = input("Lokal PIN/Parol (agar parolsiz bo'lsa, bo'sh qoldiring): ").strip()
+                key_f = input("Yoki found_local_key.bin fayl yo'li (bo'sh qoldirish mumkin): ").strip().strip('"')
+                dc = input("Maqsadli DC ID [standart: avtomatik MainDC]: ").strip()
+                dc_id = int(dc) if dc else None
+                out_sess = input("Chiqish .session fayli nomi [avtomatik nomlash uchun bo'sh qoldiring]: ").strip().strip('"')
+
+                extract_session_from_backup(
+                    source=src,
+                    passcode=pwd if pwd else None,
+                    local_key_path=key_f if key_f else None,
+                    target_dc=dc_id,
+                    output_session_path=out_sess if out_sess else None,
+                )
+
+            elif choice == "4":
+                print("\n--- 4. Session -> Toza TData Converter ---")
+                sess = input("Kirish .session fayli yo'li: ").strip().strip('"')
+                out_td = input("Chiqish tdata papkasi yo'li: ").strip().strip('"')
+                convert_session(sess, out_td)
+
+            elif choice == "5":
+                print("\n--- 5. Session Health Checker ---")
+                sess = input("Tekshiriladigan .session fayli yo'li: ").strip().strip('"')
+                check_session_cli(sess)
+
+            elif choice == "6":
+                print("\n--- 6. OpenTele Patch ---")
+                apply_patch()
+
             else:
-                candidates = [f"{i:04d}" for i in range(10000)]
+                print("⚠️ Noto'g'ri tanlov! Qaytadan urinib ko'ring.")
 
-            cracker = KD2Cracker.from_source(src)
-            cracker.crack(candidates)
+        except Exception as e:
+            print(f"\n❌ Xatolik yuz berdi: {e}")
 
-        elif choice == "3":
-            print("\n--- 3. Session Extractor ---")
-            src = input("ZIP arxiv yoki tdata papkasi yo'li: ").strip().strip('"')
-            pwd = input("Lokal PIN/Parol (agar bo'lsa): ").strip()
-            key_f = input("Yoki found_local_key.bin fayl yo'li (bo'sh qoldirish mumkin): ").strip().strip('"')
-            dc = input("Maqsadli DC ID [standart: 2]: ").strip()
-            dc_id = int(dc) if dc else 2
-            out_sess = input("Chiqish .session fayli nomi [standart: telegram_recovered.session]: ").strip()
-            if not out_sess:
-                out_sess = "telegram_recovered.session"
-
-            extract_session_from_backup(
-                source=src,
-                passcode=pwd if pwd else None,
-                local_key_path=key_f if key_f else None,
-                target_dc=dc_id,
-                output_session_path=out_sess,
-            )
-
-        elif choice == "4":
-            print("\n--- 4. Session -> Toza TData Converter ---")
-            sess = input("Kirish .session fayli yo'li: ").strip().strip('"')
-            out_td = input("Chiqish tdata papkasi yo'li: ").strip().strip('"')
-            convert_session(sess, out_td)
-
-        elif choice == "5":
-            print("\n--- 5. Session Health Checker ---")
-            sess = input("Tekshiriladigan .session fayli yo'li: ").strip().strip('"')
-            check_session_cli(sess)
-
-        elif choice == "6":
-            print("\n--- 6. OpenTele Patch ---")
-            apply_patch()
-
-        else:
-            print("⚠️ Noto'g'ri tanlov! Qaytadan urinib ko'ring.")
-
-        input("\nDavom etish uchun [Enter] tugmasini bosing...")
+        try:
+            input("\nDavom etish uchun [Enter] tugmasini bosing...")
+        except (EOFError, KeyboardInterrupt):
+            break
 
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
-        # If CLI flags were passed, let modules handle their arguments
         subcmd = sys.argv[1].lower()
-        if subcmd in ["--harvest", "-h"]:
+        if subcmd in ["-h", "--help", "help"]:
+            print(BANNER)
+            print(HELP_TEXT)
+        elif subcmd == "--harvest":
             sys.argv.pop(1)
-            run_harvester()
+            run_harvester_cli()
         elif subcmd in ["--crack", "-c"]:
             sys.argv.pop(1)
-            run_cracker()
+            run_cracker_cli()
         elif subcmd in ["--extract", "-e"]:
             sys.argv.pop(1)
-            run_extractor()
-        elif subcmd in ["--convert"]:
+            run_extractor_cli()
+        elif subcmd == "--convert":
             sys.argv.pop(1)
-            run_converter()
-        elif subcmd in ["--check"]:
+            run_converter_cli()
+        elif subcmd == "--check":
             sys.argv.pop(1)
-            run_checker()
-        elif subcmd in ["--patch"]:
+            run_checker_cli()
+        elif subcmd == "--patch":
             apply_patch()
+        elif subcmd == "--test":
+            from tests.run_all_tests import run_suite
+            sys.exit(0 if run_suite() else 1)
         else:
-            interactive_menu()
+            print(f"⚠️ Noma'lum buyruq: {subcmd}")
+            print(HELP_TEXT)
+            sys.exit(1)
     else:
         interactive_menu()

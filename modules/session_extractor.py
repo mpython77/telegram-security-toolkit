@@ -1,6 +1,7 @@
 """
 Telegram Session Extractor
-Extracts MTProto AuthKeys from decrypted tdata and exports them as Telethon SQLite .session files.
+Extracts MTProto AuthKeys, User ID, and Main DC ID from decrypted tdata
+and exports them as Telethon SQLite .session files.
 """
 
 import sys
@@ -22,7 +23,7 @@ if str(PARENT_DIR) not in sys.path:
 
 from core.tdata_parser import TDataParser
 from core.crypto import verify_kd2_candidate
-from core.dc_extractor import DCExtractor
+from core.dc_extractor import DCExtractor, MtpSessionInfo
 from core.session_manager import SessionManager
 
 
@@ -30,14 +31,14 @@ def extract_session_from_backup(
     source: Union[str, Path],
     passcode: Optional[str] = None,
     local_key_path: Optional[Union[str, Path]] = None,
-    target_dc: int = 2,
+    target_dc: Optional[int] = None,
     output_session_path: Optional[Union[str, Path]] = None,
 ) -> Path:
     source_path = Path(source)
     if not source_path.exists():
         raise FileNotFoundError(f"Manba topilmadi: {source_path}")
 
-    # 1. Parse KD2 and session files
+    # 1. Parse KD2/PBKDF2 and session files
     if source_path.is_file() and source_path.suffix.lower() == ".zip":
         kd2_info, session_files = TDataParser.load_from_zip(source_path)
     elif source_path.is_dir():
@@ -53,32 +54,39 @@ def extract_session_from_backup(
     if local_key_path and Path(local_key_path).exists():
         local_key = Path(local_key_path).read_bytes()[:256]
         print(f"🔑 LocalKey fayldan yuklandi: {len(local_key)} bayt")
-    elif passcode is not None:
-        print(f"🔍 Parol tekshirilmoqda: '{passcode}'...")
+    else:
+        cand_pwd = passcode if passcode is not None else ""
+        if passcode is not None:
+            print(f"🔍 Parol tekshirilmoqda: '{passcode}'...")
+        else:
+            print("🔍 Lokal parolsiz (bo'sh parol '') holati tekshirilmoqda...")
+
         ok, cand_key = verify_kd2_candidate(
-            passcode,
+            cand_pwd,
             kd2_info.salt,
             kd2_info.key128,
             kd2_info.ciphertext,
             time_cost=kd2_info.time_cost,
             memory_cost=kd2_info.memory_cost,
+            kdf_id=kd2_info.kdf_id,
         )
         if not ok or cand_key is None:
+            if passcode is None:
+                raise ValueError("Akkauntda lokal parol o'rnatilgan! Iltimos, --passcode yoki --key parametrini kiriting.")
             raise ValueError(f"Noto'g'ri passcode: '{passcode}'")
+
         local_key = cand_key[:256]
-        print(f"✅ Parol to'g'ri! LocalKey shifrdan yechildi ({len(local_key)} bayt)")
-    else:
-        raise ValueError("Yo --passcode yoki --key parametri ko'rsatilishi shart!")
+        print(f"✅ Kalit ochildi! LocalKey shifrdan yechildi ({len(local_key)} bayt)")
 
     # 3. Decrypt and scan all session files for active DC keys
     print(f"📦 Arxivdagi sessiya fayllari tahlil qilinmoqda ({len(session_files)} ta)...")
-    valid_sessions: Dict[str, Dict[int, bytes]] = {}
+    valid_sessions: Dict[str, MtpSessionInfo] = {}
 
     for s_name, s_raw in session_files.items():
         try:
-            dc_keys = DCExtractor.extract_all_dc_keys(s_raw, local_key)
-            if dc_keys:
-                valid_sessions[s_name] = dc_keys
+            s_info = DCExtractor.extract_session_info(s_raw, local_key)
+            if s_info.dc_keys:
+                valid_sessions[s_name] = s_info
         except Exception:
             continue
 
@@ -89,29 +97,40 @@ def extract_session_from_backup(
         )
 
     print(f"✅ Faol avtorizatsiyaga ega akkauntlar soni: {len(valid_sessions)} ta")
-    for s_name, keys in valid_sessions.items():
-        print(f"   👉 Akkaunt: {Path(s_name).name} | DC kalitlari: {list(keys.keys())}")
+    for s_name, s_info in valid_sessions.items():
+        print(
+            f"   👉 Akkaunt: {Path(s_name).name} | User ID: {s_info.user_id} | "
+            f"Main DC: {s_info.main_dc_id} | DC kalitlari: {list(s_info.dc_keys.keys())}"
+        )
 
     # Pick the target account (first active one by default)
     chosen_s_name = list(valid_sessions.keys())[0]
-    all_dc_keys = valid_sessions[chosen_s_name]
-    print(f"\nTanlangan akkaunt: {Path(chosen_s_name).name}")
+    chosen_info = valid_sessions[chosen_s_name]
+    all_dc_keys = chosen_info.dc_keys
 
-    if target_dc not in all_dc_keys:
-        fallback_dc = 2 if 2 in all_dc_keys else list(all_dc_keys.keys())[0]
-        print(f"⚠️ So'ralgan DC {target_dc} topilmadi, DC {fallback_dc} tanlandi.")
-        target_dc = fallback_dc
+    # Determine target DC: prefer explicit target_dc if valid, else chosen_info.main_dc_id
+    dc_to_use = target_dc if target_dc is not None else chosen_info.main_dc_id
+    if dc_to_use not in all_dc_keys:
+        fallback_dc = chosen_info.main_dc_id if chosen_info.main_dc_id in all_dc_keys else list(all_dc_keys.keys())[0]
+        print(f"⚠️ So'ralgan DC {dc_to_use} topilmadi, asosiy DC {fallback_dc} tanlandi.")
+        dc_to_use = fallback_dc
 
-    auth_key = all_dc_keys[target_dc]
+    auth_key = all_dc_keys[dc_to_use]
+    print(f"\nTanlangan akkaunt: {Path(chosen_s_name).name} (User ID: {chosen_info.user_id}, DC: {dc_to_use})")
 
-    # 4. Create Telethon SQLite .session
+    # 4. Create Telethon SQLite .session (with User ID stored in entities id=0)
     if not output_session_path:
-        output_session_path = Path.cwd() / f"telegram_dc{target_dc}.session"
+        output_session_path = Path.cwd() / f"account_{chosen_info.user_id}_dc{dc_to_use}.session"
     else:
         output_session_path = Path(output_session_path)
 
-    sess_file = SessionManager.create_telethon_session(auth_key, target_dc, output_session_path)
-    print(f"🎉 Telethon sessiyasi muvaffaqiyatli yaratildi:")
+    sess_file = SessionManager.create_telethon_session(
+        auth_key=auth_key,
+        dc_id=dc_to_use,
+        output_path=output_session_path,
+        user_id=chosen_info.user_id,
+    )
+    print("🎉 Telethon sessiyasi muvaffaqiyatli yaratildi:")
     print(f"👉 {sess_file.resolve()}\n")
     return sess_file
 
@@ -119,10 +138,10 @@ def extract_session_from_backup(
 def main():
     parser = argparse.ArgumentParser(description="Telegram Session Extractor")
     parser.add_argument("--source", "-s", required=True, help="Telegram backup ZIP fayli yoki tdata papkasi")
-    parser.add_argument("--passcode", "-p", type=str, help="Lokal PIN/Parol (masalan: 9562)")
-    parser.add_argument("--key", "-k", type=str, help="Oldindan topilgan found_local_key.bin fayli")
-    parser.add_argument("--dc", type=int, default=2, help="Maqsadli Data Center ID (standart: 2)")
-    parser.add_argument("--output", "-o", type=str, help="Chiqish .session fayli yo'li")
+    parser.add_argument("--passcode", "-p", type=str, default=None, help="Lokal PIN/Parol (agar parolsiz bo'lsa, kiritish shart emas)")
+    parser.add_argument("--key", "-k", type=str, default=None, help="Oldindan topilgan found_local_key.bin fayli")
+    parser.add_argument("--dc", type=int, default=None, help="Maqsadli Data Center ID (standart: avtomatik MainDC)")
+    parser.add_argument("--output", "-o", type=str, default=None, help="Chiqish .session fayli yo'li")
 
     args = parser.parse_args()
 

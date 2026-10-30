@@ -1,11 +1,16 @@
 """
 End-to-End Pipeline Test
-Tests complete workflow: Parsing -> Multi-core Cracking -> Session Extraction -> Schema Verification
+Tests complete workflow:
+1. Parsing & Multi-core Cracking (KD2 Argon2id)
+2. Session Extraction (with UserID stored in SQLite entities id=0)
+3. Offline Session -> Clean Passcode-Free TData conversion
+4. Re-extracting session from the newly generated Passcode-Free TData and verifying byte-for-byte AuthKey match!
 """
 
 import os
 import sys
 import shutil
+import asyncio
 import sqlite3
 import unittest
 from pathlib import Path
@@ -15,6 +20,7 @@ if str(TOOLKIT_ROOT) not in sys.path:
     sys.path.insert(0, str(TOOLKIT_ROOT))
 
 from core.tdata_parser import TDataParser
+from core.session_manager import SessionManager
 from modules.cracker import KD2Cracker
 from modules.session_extractor import extract_session_from_backup
 
@@ -32,7 +38,7 @@ class TestE2EPipeline(unittest.TestCase):
         if self.test_dir.exists():
             shutil.rmtree(self.test_dir, ignore_errors=True)
 
-    def test_full_e2e_recovery_pipeline(self):
+    def test_full_e2e_recovery_and_tdata_roundtrip(self):
         if not BACKUP_1.exists():
             self.skipTest(f"{BACKUP_1.name} topilmadi")
 
@@ -51,32 +57,26 @@ class TestE2EPipeline(unittest.TestCase):
         saved_pwd = (self.test_dir / "found_passcode.txt").read_text(encoding="utf-8").strip()
         self.assertEqual(saved_pwd, "1111")
 
-        saved_key = (self.test_dir / "found_local_key.bin").read_bytes()
-        self.assertGreaterEqual(len(saved_key), 256)
-
         # 2. Extract Telethon .session using cracked passcode
         out_session = self.test_dir / "e2e_output.session"
         extracted_path = extract_session_from_backup(
             source=BACKUP_1,
             passcode=saved_pwd,
-            target_dc=2,
             output_session_path=out_session,
         )
 
         self.assertTrue(extracted_path.exists())
         self.assertGreater(extracted_path.stat().st_size, 1024)
 
-        # 3. Verify SQLite Telethon database structure
+        # 3. Verify SQLite Telethon database structure & stored User ID
         conn = sqlite3.connect(extracted_path)
         cur = conn.cursor()
 
-        # Check tables
         tables = [r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
         self.assertIn("version", tables)
         self.assertIn("sessions", tables)
         self.assertIn("entities", tables)
 
-        # Check session entry
         cur.execute("SELECT dc_id, server_address, port, auth_key FROM sessions")
         row = cur.fetchone()
         self.assertIsNotNone(row)
@@ -87,7 +87,35 @@ class TestE2EPipeline(unittest.TestCase):
         self.assertEqual(port, 443)
         self.assertEqual(len(auth_key), 256)
 
+        cur.execute("SELECT hash FROM entities WHERE id = 0")
+        self_row = cur.fetchone()
+        self.assertIsNotNone(self_row)
+        self.assertEqual(self_row[0], 1684305595)
         conn.close()
+
+        # 4. Convert .session to clean, passcode-free tdata
+        clean_tdata_dir = self.test_dir / "clean_tdata"
+        asyncio.run(SessionManager.session_to_tdata(extracted_path, clean_tdata_dir))
+        self.assertTrue((clean_tdata_dir / "key_datas").exists())
+        self.assertTrue((clean_tdata_dir / "D877F783D5D3EF8Cs").exists())
+
+        # 5. Re-extract session from the newly generated passcode-free tdata (with NO passcode!)
+        roundtrip_session = self.test_dir / "roundtrip.session"
+        re_extracted = extract_session_from_backup(
+            source=clean_tdata_dir,
+            passcode=None,
+            output_session_path=roundtrip_session,
+        )
+        self.assertTrue(re_extracted.exists())
+
+        conn2 = sqlite3.connect(re_extracted)
+        cur2 = conn2.cursor()
+        cur2.execute("SELECT dc_id, auth_key FROM sessions")
+        dc2, ak2 = cur2.fetchone()
+        conn2.close()
+
+        self.assertEqual(dc2, 2)
+        self.assertEqual(ak2, auth_key)
 
 
 if __name__ == "__main__":

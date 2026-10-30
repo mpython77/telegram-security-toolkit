@@ -69,39 +69,72 @@ class TDataParser:
     @staticmethod
     def parse_kd2(key_datas_raw: bytes) -> KD2Info:
         """
-        Searches for and parses the KD2 structure from raw key_datas bytes.
+        Parses key_datas (both KD2 Argon2id and Standard/Legacy PBKDF2 formats).
+        Validates TDF$ header and MD5 checksum first.
         """
+        payload = TDataParser.read_tdf(key_datas_raw)
+
         idx = key_datas_raw.find(b"KD2\x00")
-        if idx == -1:
-            raise ValueError("key_datas ichida KD2 tuzilmasi topilmadi. Akkauntda lokal parol o'rnatilmagan yoki eski PBKDF2 formatida.")
+        if idx != -1:
+            blob = key_datas_raw[idx:]
+            if len(blob) < 76 + 288:
+                raise ValueError(f"KD2 tuzilmasi hajmi yetarli emas: {len(blob)} bayt")
 
-        blob = key_datas_raw[idx:]
-        if len(blob) < 76 + 288:
-            raise ValueError(f"KD2 tuzilmasi hajmi yetarli emas: {len(blob)} bayt")
+            ver = struct.unpack_from(">I", blob, 4)[0]
+            kdf_id = struct.unpack_from(">I", blob, 8)[0]
+            mem = struct.unpack_from(">I", blob, 24)[0]
+            time_c = struct.unpack_from(">I", blob, 28)[0]
+            th = struct.unpack_from(">I", blob, 32)[0]
+            salt_len = struct.unpack_from(">I", blob, 36)[0]
 
-        ver = struct.unpack_from(">I", blob, 4)[0]
-        kdf_id = struct.unpack_from(">I", blob, 8)[0]
-        mem = struct.unpack_from(">I", blob, 24)[0]
-        time_c = struct.unpack_from(">I", blob, 28)[0]
-        th = struct.unpack_from(">I", blob, 32)[0]
-        salt_len = struct.unpack_from(">I", blob, 36)[0]
+            salt = blob[40 : 40 + salt_len]
+            enc_len_offset = 40 + salt_len
+            enc_len = struct.unpack_from(">I", blob, enc_len_offset)[0]
 
-        salt = blob[40 : 40 + salt_len]
-        enc_len_offset = 40 + salt_len
-        enc_len = struct.unpack_from(">I", blob, enc_len_offset)[0]
+            enc_blob_offset = enc_len_offset + 4
+            enc_blob = blob[enc_blob_offset : enc_blob_offset + enc_len]
 
-        enc_blob_offset = enc_len_offset + 4
-        enc_blob = blob[enc_blob_offset : enc_blob_offset + enc_len]
+            key128 = enc_blob[:16]
+            ciphertext = enc_blob[16:]
 
+            return KD2Info(
+                version=ver,
+                kdf_id=kdf_id,
+                memory_cost=mem,
+                time_cost=time_c,
+                threads=th,
+                salt_len=salt_len,
+                salt=salt,
+                enc_len=enc_len,
+                enc_blob=enc_blob,
+                key128=key128,
+                ciphertext=ciphertext,
+            )
+
+        # Standard / Legacy PBKDF2 format (used when no passcode is set or pre-KD2 passcodes):
+        # Field 0: salt (QByteArray), Field 1: keyEncrypted (QByteArray)
+        if len(payload) < 40:
+            raise ValueError(f"key_datas payload juda kichik: {len(payload)} bayt")
+
+        salt_len = struct.unpack_from(">I", payload, 0)[0]
+        if salt_len == 0xFFFFFFFF or 4 + salt_len + 4 > len(payload):
+            raise ValueError("key_datas ichida na KD2 va na yaroqli PBKDF2 tuzilmasi topildi.")
+
+        salt = payload[4 : 4 + salt_len]
+        enc_len = struct.unpack_from(">I", payload, 4 + salt_len)[0]
+        if enc_len == 0xFFFFFFFF or 8 + salt_len + enc_len > len(payload):
+            raise ValueError("key_datas ichida shifrlangan kalit bloki (keyEncrypted) topilmadi.")
+
+        enc_blob = payload[8 + salt_len : 8 + salt_len + enc_len]
         key128 = enc_blob[:16]
         ciphertext = enc_blob[16:]
 
         return KD2Info(
-            version=ver,
-            kdf_id=kdf_id,
-            memory_cost=mem,
-            time_cost=time_c,
-            threads=th,
+            version=1,
+            kdf_id=0,  # 0 indicates PBKDF2-HMAC-SHA512
+            memory_cost=0,
+            time_cost=100000,
+            threads=1,
             salt_len=salt_len,
             salt=salt,
             enc_len=enc_len,
