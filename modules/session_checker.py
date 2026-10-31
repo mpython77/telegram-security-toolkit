@@ -36,9 +36,13 @@ def check_session_cli(session_path: str):
     res = asyncio.run(SessionManager.verify_session(sess_file))
 
     if not res.get("authorized"):
-        print("\n❌ SEANSI O'CHGAN (Tugagan):")
-        print("Ushbu sessiya Telegram serverida faol emas yoki avtorizatsiyadan chiqarilgan.")
-        return
+        print("\n❌ SEANSI FAOL EMAS (O'chgan yoki bekor qilingan):")
+        if res.get("error"):
+            print(f"   ⚠️ Sabab: {res['error']}")
+        else:
+            print("   ℹ️ Ushbu sessiya Telegram serverida faol emas yoki avtorizatsiyadan chiqarilgan.")
+        print("=" * 60 + "\n")
+        return False
 
     print("\n✅ SEANSI TO'LIQ FAOL VA TIRIK!")
     print(f"   👤 Ism-familiya : {res.get('first_name')} {res.get('last_name')}")

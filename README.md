@@ -169,9 +169,13 @@ python modules/session_checker.py --session account.session
 ### 6-qadam: Barcha Testlarni Ishga Tushirish (Unit & E2E Test Suite)
 Loyiha ichidagi barcha kriptografik funksiyalar, xotira hisoblashlari va to'liq tiklash zanjirini avtomatik sinovdan o'tkazish:
 ```bash
+python main.py --test
+```
+yoki:
+```bash
 python tests/run_all_tests.py
 ```
-Ushbu skript 10 ta alohida testni (kriptotahlil, AES-IGE roundtrip, RAM tahlili, KD2 KDF, real arxivlar va E2E to'liq zanjir) avtomatik bajaradi va hisobot beradi.
+Ushbu skript 14 ta alohida testni (kriptotahlil, AES-IGE roundtrip, RAM tahlili, KD2 KDF, ko'p akkauntli hisoblashlar, real arxivlar va E2E to'liq zanjir) avtomatik bajaradi va hisobot beradi.
 
 ---
 

@@ -8,7 +8,7 @@ import struct
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union, Any
 
 
 @dataclass
@@ -142,6 +142,76 @@ class TDataParser:
             key128=key128,
             ciphertext=ciphertext,
         )
+
+    @staticmethod
+    def compute_account_filename(index: int, key_file: str = "data") -> Tuple[str, str]:
+        """
+        Computes the folder name and session filename (.s) for a Telegram Desktop account index.
+        Index 0 -> ('D877F783D5D3EF8C', 'D877F783D5D3EF8Cs')
+        Index 1 -> ('A7FDF864FBC10B77', 'A7FDF864FBC10B77s')
+        Index 2 -> ('F8806DD0C461824F', 'F8806DD0C461824Fs')
+        """
+        data_name = key_file if index == 0 else f"{key_file}#{index + 1}"
+        md5_bytes = hashlib.md5(data_name.encode("utf-8")).digest()
+        val = int.from_bytes(md5_bytes, "little")
+
+        folder_part = ""
+        for _ in range(16):
+            v = val & 0xF
+            if v < 10:
+                folder_part += chr(ord("0") + v)
+            else:
+                folder_part += chr(ord("A") + (v - 10))
+            val >>= 4
+        return folder_part, folder_part + "s"
+
+    @staticmethod
+    def parse_accounts_metadata(key_datas_raw: bytes, local_key: bytes) -> Optional[Dict[str, Any]]:
+        """
+        Decrypts infoEncrypted in key_datas to retrieve active accounts list and active_index.
+        """
+        try:
+            from .crypto import prepare_aes_oldmtp, decrypt_aes_ige
+
+            payload = TDataParser.read_tdf(key_datas_raw)
+            salt_len = struct.unpack_from(">I", payload, 0)[0]
+            pos = 4 + salt_len
+            f1_len = struct.unpack_from(">I", payload, pos)[0]
+            pos += 4
+            if f1_len != 0xFFFFFFFF:
+                pos += f1_len
+            if pos + 4 > len(payload):
+                return None
+
+            info_len = struct.unpack_from(">I", payload, pos)[0]
+            pos += 4
+            if info_len == 0xFFFFFFFF or pos + info_len > len(payload) or info_len < 32:
+                return None
+
+            info_enc = payload[pos : pos + info_len]
+            k128, cipher = info_enc[:16], info_enc[16:]
+            ak, aiv = prepare_aes_oldmtp(local_key[:256], k128)
+            dec = decrypt_aes_ige(cipher, ak, aiv)
+            if hashlib.sha1(dec).digest()[:16] != k128:
+                return None
+
+            sz = struct.unpack_from("<I", dec, 0)[0]
+            stream = dec[4 : 4 + sz]
+            if len(stream) < 4:
+                return None
+
+            count = struct.unpack_from(">i", stream, 0)[0]
+            p = 4
+            indexes = []
+            for _ in range(count):
+                if p + 4 <= len(stream):
+                    idx = struct.unpack_from(">i", stream, p)[0]
+                    indexes.append(idx)
+                    p += 4
+            active_idx = struct.unpack_from(">i", stream, p)[0] if p + 4 <= len(stream) else 0
+            return {"count": count, "indexes": indexes, "active_index": active_idx}
+        except Exception:
+            return None
 
     @classmethod
     def load_from_zip(cls, zip_path: Union[str, Path]) -> Tuple[KD2Info, Dict[str, bytes]]:

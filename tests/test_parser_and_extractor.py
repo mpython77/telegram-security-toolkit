@@ -121,6 +121,37 @@ class TestParserAndExtractor(unittest.TestCase):
         self.assertEqual(info.main_dc_id, 2)
         self.assertIn(2, info.dc_keys)
 
+    def test_compute_account_filename(self):
+        f0, s0 = TDataParser.compute_account_filename(0)
+        self.assertEqual(f0, "D877F783D5D3EF8C")
+        self.assertEqual(s0, "D877F783D5D3EF8Cs")
+
+        f1, s1 = TDataParser.compute_account_filename(1)
+        self.assertEqual(f1, "A7FDF864FBC10B77")
+        self.assertEqual(s1, "A7FDF864FBC10B77s")
+
+        f2, s2 = TDataParser.compute_account_filename(2)
+        self.assertEqual(f2, "F8806DD0C461824F")
+        self.assertEqual(s2, "F8806DD0C461824Fs")
+
+    def test_parse_accounts_metadata(self):
+        if not BACKUP_1.exists():
+            self.skipTest(f"{BACKUP_1.name} topilmadi")
+
+        kd2, _ = TDataParser.load_from_zip(BACKUP_1)
+        ok, local_key = verify_kd2_candidate("1111", kd2.salt, kd2.key128, kd2.ciphertext, kdf_id=kd2.kdf_id)
+        self.assertTrue(ok)
+
+        with __import__("zipfile").ZipFile(BACKUP_1) as zf:
+            kd_name = [n for n in zf.namelist() if n.endswith("key_datas")][0]
+            kd_raw = zf.read(kd_name)
+
+        meta = TDataParser.parse_accounts_metadata(kd_raw, local_key)
+        self.assertIsNotNone(meta)
+        self.assertEqual(meta["count"], 1)
+        self.assertEqual(meta["indexes"], [0])
+        self.assertEqual(meta["active_index"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -78,6 +78,32 @@ def extract_session_from_backup(
         local_key = cand_key[:256]
         print(f"✅ Kalit ochildi! LocalKey shifrdan yechildi ({len(local_key)} bayt)")
 
+    # 2.5 Inspect accounts metadata from key_datas
+    try:
+        import zipfile
+
+        kd_raw = None
+        if source_path.is_file() and source_path.suffix.lower() == ".zip":
+            with zipfile.ZipFile(source_path, "r") as zf:
+                kd_entry = [n for n in zf.namelist() if n.endswith("key_datas")]
+                if kd_entry:
+                    kd_raw = zf.read(kd_entry[0])
+        elif source_path.is_dir():
+            kd_f = source_path / "key_datas"
+            if kd_f.exists():
+                kd_raw = kd_f.read_bytes()
+            else:
+                nested = list(source_path.rglob("key_datas"))
+                if nested:
+                    kd_raw = nested[0].read_bytes()
+
+        if kd_raw:
+            acc_meta = TDataParser.parse_accounts_metadata(kd_raw, local_key)
+            if acc_meta:
+                print(f"📋 Telegram konfiguratsiyasi: {acc_meta['count']} ta akkaunt (Faol profil indeksi: {acc_meta['active_index']})")
+    except Exception:
+        pass
+
     # 3. Decrypt and scan all session files for active DC keys
     print(f"📦 Arxivdagi sessiya fayllari tahlil qilinmoqda ({len(session_files)} ta)...")
     valid_sessions: Dict[str, MtpSessionInfo] = {}
