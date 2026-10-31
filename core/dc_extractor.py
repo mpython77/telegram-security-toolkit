@@ -6,9 +6,23 @@ Decrypts Telegram Desktop session (.s) files and extracts MTProto AuthKeys, User
 import hashlib
 import struct
 from dataclasses import dataclass
-from typing import Dict, Tuple
-from .crypto import prepare_aes_oldmtp, decrypt_aes_ige
+from typing import Dict, Tuple, Optional
+from .crypto import prepare_aes_oldmtp, decrypt_aes_ige, decrypt_local_block
 from .tdata_parser import TDataParser
+
+
+@dataclass
+class OfflineUserProfile:
+    """Holds user profile metadata extracted offline from Telegram Desktop's <account>/maps (lskSelfSerialized)."""
+    first_name: str = ""
+    last_name: str = ""
+    phone: str = ""
+    username: str = ""
+    bio: str = ""
+
+    @property
+    def full_name(self) -> str:
+        return f"{self.first_name} {self.last_name}".strip()
 
 
 @dataclass
@@ -17,11 +31,13 @@ class MtpSessionInfo:
     user_id: int
     main_dc_id: int
     dc_keys: Dict[int, bytes]
+    profile: Optional[OfflineUserProfile] = None
 
 
 class DCExtractor:
     """
-    Decrypts session (.s) files using the recovered LocalKey and extracts Multi-DC AuthKeys.
+    Decrypts session (.s) files and companion maps files using the recovered LocalKey,
+    extracting Multi-DC AuthKeys, User ID, Main DC ID, and offline user profile metadata.
     """
 
     # Telegram Data Center Production Server IP addresses
@@ -34,6 +50,7 @@ class DCExtractor:
     }
 
     DBI_MTP_AUTHORIZATION = 75  # 0x4b
+    LSK_SELF_SERIALIZED = 21    # 0x15
 
     @staticmethod
     def decrypt_session_data(session_s_raw: bytes, local_key: bytes) -> bytes:
@@ -61,15 +78,92 @@ class DCExtractor:
             raise ValueError("Sessiya fayli SHA-1 tekshiruvidan o'tmadi (boshqa LocalKey bilan shifrlangan)")
 
         size = struct.unpack_from("<I", decrypted, 0)[0]
-        if size > len(decrypted) - 4:
-            raise ValueError(f"Ichki blok hajmi noto'g'ri: {size} > {len(decrypted) - 4}")
-
-        return decrypted[4 : 4 + size]
+        full_len = len(decrypted)
+        if 4 <= size <= full_len and size > full_len - 16:
+            return decrypted[4:size]
+        elif 0 <= size <= full_len - 4:
+            return decrypted[4 : 4 + size]
+        raise ValueError(f"Ichki blok hajmi noto'g'ri: {size} > {full_len - 4}")
 
     @classmethod
-    def extract_session_info(cls, session_s_raw: bytes, local_key: bytes) -> MtpSessionInfo:
+    def extract_offline_profile(cls, maps_raw: bytes, local_key: bytes) -> Optional[OfflineUserProfile]:
         """
-        Extracts User ID, Main DC ID, and all MTProto AuthKeys from a session (.s) file.
+        Extracts the user's First Name, Last Name, Phone, Username, and Bio offline
+        from <account_folder>/maps (lskSelfSerialized = 21).
+        """
+        try:
+            mp = TDataParser.read_tdf(maps_raw)
+            pos = 0
+            # maps has 3 QByteArrays: legacySalt, legacyKeyEncrypted, mapEncrypted
+            for _ in range(2):
+                ln = struct.unpack_from(">I", mp, pos)[0]
+                pos += 4
+                if ln != 0xFFFFFFFF:
+                    pos += ln
+            map_enc_len = struct.unpack_from(">I", mp, pos)[0]
+            pos += 4
+            if map_enc_len == 0xFFFFFFFF or pos + map_enc_len > len(mp):
+                return None
+
+            map_enc = mp[pos : pos + map_enc_len]
+            stream = decrypt_local_block(map_enc, local_key[:256])
+            if not stream or len(stream) < 12:
+                return None
+
+            kt = struct.unpack_from(">I", stream, 0)[0]
+            if kt != cls.LSK_SELF_SERIALIZED:
+                return None
+
+            slen = struct.unpack_from(">I", stream, 4)[0]
+            if slen == 0xFFFFFFFF or slen < 96 or 8 + slen > len(stream):
+                return None
+
+            self_ser = stream[8 : 8 + slen]
+
+            def read_qstr(buf: bytes, offset: int) -> Tuple[str, int]:
+                if offset + 4 > len(buf):
+                    return "", offset
+                qlen = struct.unpack_from(">I", buf, offset)[0]
+                offset += 4
+                if qlen == 0xFFFFFFFF or offset + qlen > len(buf):
+                    return "", offset
+                text = buf[offset : offset + qlen].decode("utf-16-be", errors="replace")
+                return text, offset + qlen
+
+            marker = bytes.fromhex("ffffffff000000a0000000a000000000")
+            m_idx = self_ser.find(marker)
+            p_off = (m_idx + len(marker)) if m_idx != -1 else 92
+
+            first_name, p_off = read_qstr(self_ser, p_off)
+            last_name, p_off = read_qstr(self_ser, p_off)
+            phone, p_off = read_qstr(self_ser, p_off)
+            username, p_off = read_qstr(self_ser, p_off)
+            bio = ""
+            if p_off + 32 <= len(self_ser):
+                bio, _ = read_qstr(self_ser, p_off + 32)
+
+            if not (first_name or last_name or phone or username):
+                return None
+
+            return OfflineUserProfile(
+                first_name=first_name,
+                last_name=last_name,
+                phone=phone,
+                username=username,
+                bio=bio,
+            )
+        except Exception:
+            return None
+
+    @classmethod
+    def extract_session_info(
+        cls,
+        session_s_raw: bytes,
+        local_key: bytes,
+        maps_raw: Optional[bytes] = None,
+    ) -> MtpSessionInfo:
+        """
+        Extracts User ID, Main DC ID, all MTProto AuthKeys, and optional offline user profile.
         Supports both modern 64-bit UserID (kWideIdsTag) and legacy 32-bit UserID headers.
         """
         inner = cls.decrypt_session_data(session_s_raw, local_key)
@@ -111,7 +205,13 @@ class DCExtractor:
             pos += 256
             dc_keys[dc_id] = k_data
 
-        return MtpSessionInfo(user_id=user_id, main_dc_id=main_dc_id, dc_keys=dc_keys)
+        profile = cls.extract_offline_profile(maps_raw, local_key) if maps_raw else None
+        return MtpSessionInfo(
+            user_id=user_id,
+            main_dc_id=main_dc_id,
+            dc_keys=dc_keys,
+            profile=profile,
+        )
 
     @classmethod
     def extract_all_dc_keys(cls, session_s_raw: bytes, local_key: bytes) -> Dict[int, bytes]:

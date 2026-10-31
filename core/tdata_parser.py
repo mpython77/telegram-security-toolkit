@@ -67,51 +67,100 @@ class TDataParser:
         return payload
 
     @staticmethod
+    def write_tdf(payload: bytes, version: int = 7003003) -> bytes:
+        """
+        Serializes payload into a valid Telegram Desktop TDF$ binary buffer with MD5 footer.
+        """
+        magic = TDataParser.MAGIC_TDF
+        ver_bytes = version.to_bytes(4, "little")
+        size_bytes = len(payload).to_bytes(4, "little")
+        md5_digest = hashlib.md5(payload + size_bytes + ver_bytes + magic).digest()
+        return magic + ver_bytes + payload + md5_digest
+
+    @staticmethod
+    def create_unlocked_key_datas(
+        local_key: bytes,
+        account_indexes: Optional[List[int]] = None,
+        active_index: int = 0,
+        version: int = 7003003,
+    ) -> bytes:
+        """
+        Creates a passcode-free key_datas TDF$ file that wraps the existing 256-byte local_key
+        under an empty passcode ('', PBKDF2 1 iteration).
+        Preserves 100% compatibility with existing encrypted session/maps/cache files!
+        """
+        import os
+        from .crypto import derive_pbkdf2_wrap_key, encrypt_local_block
+
+        if account_indexes is None or len(account_indexes) == 0:
+            account_indexes = [0]
+
+        salt = os.urandom(32)
+        passcode_key = derive_pbkdf2_wrap_key("", salt)
+        key_encrypted = encrypt_local_block(local_key[:256], passcode_key)
+
+        info_inner = struct.pack(">i", len(account_indexes))
+        for idx in account_indexes:
+            info_inner += struct.pack(">i", idx)
+        info_inner += struct.pack(">i", active_index)
+        info_encrypted = encrypt_local_block(info_inner, local_key[:256])
+
+        def qba(b: bytes) -> bytes:
+            return struct.pack(">I", len(b)) + b
+
+        payload = qba(salt) + qba(key_encrypted) + qba(info_encrypted)
+        return TDataParser.write_tdf(payload, version=version)
+
+    @staticmethod
     def parse_kd2(key_datas_raw: bytes) -> KD2Info:
         """
         Parses key_datas (both KD2 Argon2id and Standard/Legacy PBKDF2 formats).
+        Correctly handles Telegram Desktop v5.x-v7.x+ where an unencrypted key_datas
+        still appends a 16-byte 'KD2\\x00' stub with kdf_id=0.
         Validates TDF$ header and MD5 checksum first.
         """
         payload = TDataParser.read_tdf(key_datas_raw)
 
-        idx = key_datas_raw.find(b"KD2\x00")
+        idx = payload.find(b"KD2\x00")
         if idx != -1:
-            blob = key_datas_raw[idx:]
-            if len(blob) < 76 + 288:
-                raise ValueError(f"KD2 tuzilmasi hajmi yetarli emas: {len(blob)} bayt")
+            blob = payload[idx:]
+            if len(blob) >= 12:
+                ver = struct.unpack_from(">I", blob, 4)[0]
+                kdf_id = struct.unpack_from(">I", blob, 8)[0]
+                if kdf_id != 0:
+                    if len(blob) < 76 + 288:
+                        raise ValueError(f"KD2 tuzilmasi hajmi yetarli emas: {len(blob)} bayt")
 
-            ver = struct.unpack_from(">I", blob, 4)[0]
-            kdf_id = struct.unpack_from(">I", blob, 8)[0]
-            mem = struct.unpack_from(">I", blob, 24)[0]
-            time_c = struct.unpack_from(">I", blob, 28)[0]
-            th = struct.unpack_from(">I", blob, 32)[0]
-            salt_len = struct.unpack_from(">I", blob, 36)[0]
+                    mem = struct.unpack_from(">I", blob, 24)[0]
+                    time_c = struct.unpack_from(">I", blob, 28)[0]
+                    th = struct.unpack_from(">I", blob, 32)[0]
+                    salt_len = struct.unpack_from(">I", blob, 36)[0]
 
-            salt = blob[40 : 40 + salt_len]
-            enc_len_offset = 40 + salt_len
-            enc_len = struct.unpack_from(">I", blob, enc_len_offset)[0]
+                    salt = blob[40 : 40 + salt_len]
+                    enc_len_offset = 40 + salt_len
+                    enc_len = struct.unpack_from(">I", blob, enc_len_offset)[0]
 
-            enc_blob_offset = enc_len_offset + 4
-            enc_blob = blob[enc_blob_offset : enc_blob_offset + enc_len]
+                    enc_blob_offset = enc_len_offset + 4
+                    enc_blob = blob[enc_blob_offset : enc_blob_offset + enc_len]
 
-            key128 = enc_blob[:16]
-            ciphertext = enc_blob[16:]
+                    key128 = enc_blob[:16]
+                    ciphertext = enc_blob[16:]
 
-            return KD2Info(
-                version=ver,
-                kdf_id=kdf_id,
-                memory_cost=mem,
-                time_cost=time_c,
-                threads=th,
-                salt_len=salt_len,
-                salt=salt,
-                enc_len=enc_len,
-                enc_blob=enc_blob,
-                key128=key128,
-                ciphertext=ciphertext,
-            )
+                    return KD2Info(
+                        version=ver,
+                        kdf_id=kdf_id,
+                        memory_cost=mem,
+                        time_cost=time_c,
+                        threads=th,
+                        salt_len=salt_len,
+                        salt=salt,
+                        enc_len=enc_len,
+                        enc_blob=enc_blob,
+                        key128=key128,
+                        ciphertext=ciphertext,
+                    )
 
-        # Standard / Legacy PBKDF2 format (used when no passcode is set or pre-KD2 passcodes):
+        # Standard / Legacy PBKDF2 format (used when no passcode is set, kdf_id=0 in KD2 stub, or pre-KD2 passcodes):
         # Field 0: salt (QByteArray), Field 1: keyEncrypted (QByteArray)
         if len(payload) < 40:
             raise ValueError(f"key_datas payload juda kichik: {len(payload)} bayt")
@@ -171,7 +220,7 @@ class TDataParser:
         Decrypts infoEncrypted in key_datas to retrieve active accounts list and active_index.
         """
         try:
-            from .crypto import prepare_aes_oldmtp, decrypt_aes_ige
+            from .crypto import decrypt_local_block
 
             payload = TDataParser.read_tdf(key_datas_raw)
             salt_len = struct.unpack_from(">I", payload, 0)[0]
@@ -189,15 +238,8 @@ class TDataParser:
                 return None
 
             info_enc = payload[pos : pos + info_len]
-            k128, cipher = info_enc[:16], info_enc[16:]
-            ak, aiv = prepare_aes_oldmtp(local_key[:256], k128)
-            dec = decrypt_aes_ige(cipher, ak, aiv)
-            if hashlib.sha1(dec).digest()[:16] != k128:
-                return None
-
-            sz = struct.unpack_from("<I", dec, 0)[0]
-            stream = dec[4 : 4 + sz]
-            if len(stream) < 4:
+            stream = decrypt_local_block(info_enc, local_key[:256])
+            if not stream or len(stream) < 4:
                 return None
 
             count = struct.unpack_from(">i", stream, 0)[0]
@@ -209,6 +251,8 @@ class TDataParser:
                     indexes.append(idx)
                     p += 4
             active_idx = struct.unpack_from(">i", stream, p)[0] if p + 4 <= len(stream) else 0
+            if active_idx < 0 or active_idx >= max(1, count):
+                active_idx = 0
             return {"count": count, "indexes": indexes, "active_index": active_idx}
         except Exception:
             return None

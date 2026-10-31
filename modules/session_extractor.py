@@ -104,13 +104,30 @@ def extract_session_from_backup(
     except Exception:
         pass
 
-    # 3. Decrypt and scan all session files for active DC keys
+    # 3. Decrypt and scan all session files for active DC keys and offline profile
     print(f"📦 Arxivdagi sessiya fayllari tahlil qilinmoqda ({len(session_files)} ta)...")
     valid_sessions: Dict[str, MtpSessionInfo] = {}
 
+    def load_companion_maps(s_key: str) -> Optional[bytes]:
+        try:
+            maps_rel = s_key[:-1] + "/maps"
+            if source_path.is_file() and source_path.suffix.lower() == ".zip":
+                import zipfile
+                with zipfile.ZipFile(source_path, "r") as zf:
+                    if maps_rel in zf.namelist():
+                        return zf.read(maps_rel)
+            elif source_path.is_dir():
+                mp_file = source_path / maps_rel
+                if mp_file.exists():
+                    return mp_file.read_bytes()
+        except Exception:
+            pass
+        return None
+
     for s_name, s_raw in session_files.items():
         try:
-            s_info = DCExtractor.extract_session_info(s_raw, local_key)
+            maps_raw = load_companion_maps(s_name)
+            s_info = DCExtractor.extract_session_info(s_raw, local_key, maps_raw=maps_raw)
             if s_info.dc_keys:
                 valid_sessions[s_name] = s_info
         except Exception:
@@ -122,12 +139,27 @@ def extract_session_from_backup(
             "Parol noto'g'ri bo'lishi yoki sessiya tozalangan bo'lishi mumkin."
         )
 
+    # Prioritize authenticated sessions (user_id > 0) over unauthenticated login-screen sessions (user_id == 0)
+    auth_sessions = {k: v for k, v in valid_sessions.items() if v.user_id > 0}
+    if auth_sessions:
+        valid_sessions = auth_sessions
+    else:
+        print("⚠️ OGOHLANTIRISH: Ushbu tdata hali akkauntga kirmagan (Login ekrani, User ID = 0)!")
+
     print(f"✅ Faol avtorizatsiyaga ega akkauntlar soni: {len(valid_sessions)} ta")
     for s_name, s_info in valid_sessions.items():
+        prof_str = ""
+        if s_info.profile:
+            p = s_info.profile
+            uname = f"@{p.username}" if p.username else "yo'q"
+            ph = f"+{p.phone}" if p.phone else "yo'q"
+            prof_str = f" | Ism: {p.full_name} ({uname}, {ph})"
         print(
-            f"   👉 Akkaunt: {Path(s_name).name} | User ID: {s_info.user_id} | "
+            f"   👉 Akkaunt: {Path(s_name).name} | User ID: {s_info.user_id}{prof_str} | "
             f"Main DC: {s_info.main_dc_id} | DC kalitlari: {list(s_info.dc_keys.keys())}"
         )
+        if s_info.profile and s_info.profile.bio:
+            print(f"      📝 Bio: {s_info.profile.bio}")
 
     # Pick the target account (first active one by default)
     chosen_s_name = list(valid_sessions.keys())[0]
@@ -144,7 +176,7 @@ def extract_session_from_backup(
     auth_key = all_dc_keys[dc_to_use]
     print(f"\nTanlangan akkaunt: {Path(chosen_s_name).name} (User ID: {chosen_info.user_id}, DC: {dc_to_use})")
 
-    # 4. Create Telethon SQLite .session (with User ID stored in entities id=0)
+    # 4. Create Telethon SQLite .session (with User ID, offline profile, and all Multi-DC keys stored)
     if not output_session_path:
         output_session_path = Path.cwd() / f"account_{chosen_info.user_id}_dc{dc_to_use}.session"
     else:
@@ -155,6 +187,8 @@ def extract_session_from_backup(
         dc_id=dc_to_use,
         output_path=output_session_path,
         user_id=chosen_info.user_id,
+        all_dc_keys=all_dc_keys,
+        profile=chosen_info.profile,
     )
     print("🎉 Telethon sessiyasi muvaffaqiyatli yaratildi:")
     print(f"👉 {sess_file.resolve()}\n")

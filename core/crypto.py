@@ -88,6 +88,49 @@ def encrypt_aes_ige(plaintext: bytes, key: bytes, iv: bytes) -> bytes:
     return tgcrypto.ige256_encrypt(plaintext, key, iv)
 
 
+def encrypt_local_block(inner_data: bytes, auth_key: bytes) -> bytes:
+    """
+    Encrypts a data block using Telegram Desktop's Storage::PrepareEncrypted specification:
+    - 4-byte little-endian dataLen = 4 + len(inner_data)
+    - inner_data
+    - random padding to 16-byte alignment
+    - 16-byte SHA-1 prefix (key128) + AES-256-IGE ciphertext
+    """
+    import os
+
+    data_len = 4 + len(inner_data)
+    buf = data_len.to_bytes(4, "little") + inner_data
+    if len(buf) & 0x0F:
+        buf += os.urandom(0x10 - (len(buf) & 0x0F))
+    key128 = hashlib.sha1(buf).digest()[:16]
+    aes_key, aes_iv = prepare_aes_oldmtp(auth_key[:256], key128)
+    return key128 + encrypt_aes_ige(buf, aes_key, aes_iv)
+
+
+def decrypt_local_block(enc_blob: bytes, auth_key: bytes) -> Optional[bytes]:
+    """
+    Decrypts a Telegram Desktop local storage block (key128 + ciphertext) and returns unpadded inner_data.
+    Supports both standard Telegram Desktop dataLen (4 + len(inner)) and direct len(inner) headers.
+    """
+    if len(enc_blob) < 32 or (len(enc_blob) - 16) % 16 != 0:
+        return None
+    key128 = enc_blob[:16]
+    ciphertext = enc_blob[16:]
+    aes_key, aes_iv = prepare_aes_oldmtp(auth_key[:256], key128)
+    decrypted = decrypt_aes_ige(ciphertext, aes_key, aes_iv)
+    if hashlib.sha1(decrypted).digest()[:16] != key128:
+        return None
+
+    data_len = struct.unpack_from("<I", decrypted, 0)[0]
+    full_len = len(decrypted)
+    if 4 <= data_len <= full_len and data_len > full_len - 16:
+        # Standard Telegram Desktop format: data_len includes the 4-byte prefix itself
+        return decrypted[4:data_len]
+    elif 0 <= data_len <= full_len - 4:
+        return decrypted[4 : 4 + data_len]
+    return None
+
+
 def verify_kd2_candidate(
     passcode: str,
     salt: bytes,
@@ -99,7 +142,7 @@ def verify_kd2_candidate(
 ) -> Tuple[bool, Optional[bytes]]:
     """
     Verifies a passcode candidate against KD2 (Argon2id) or PBKDF2 encrypted payload.
-    Returns (True, local_key) if successful, otherwise (False, None).
+    Returns (True, local_key) if successful (exact 256-byte key), otherwise (False, None).
     """
     try:
         if kdf_id == 0 or memory_cost == 0:
@@ -109,8 +152,7 @@ def verify_kd2_candidate(
                 aes_key, aes_iv = prepare_aes_oldmtp(wrap_key, key128)
                 decrypted = decrypt_aes_ige(ciphertext, aes_key, aes_iv)
                 if hashlib.sha1(decrypted).digest()[:16] == key128:
-                    size = struct.unpack_from("<I", decrypted, 0)[0]
-                    local_key = decrypted[4 : 4 + size]
+                    local_key = decrypted[4:260]
                     return True, local_key
             return False, None
 
@@ -120,8 +162,7 @@ def verify_kd2_candidate(
         
         # Verify SHA-1 integrity check: first 16 bytes of sha1(decrypted) must equal key128
         if hashlib.sha1(decrypted).digest()[:16] == key128:
-            size = struct.unpack_from("<I", decrypted, 0)[0]
-            local_key = decrypted[4 : 4 + size]
+            local_key = decrypted[4:260]
             return True, local_key
     except Exception:
         pass

@@ -41,6 +41,17 @@ def check_session_cli(session_path: str):
             print(f"   ⚠️ Sabab: {res['error']}")
         else:
             print("   ℹ️ Ushbu sessiya Telegram serverida faol emas yoki avtorizatsiyadan chiqarilgan.")
+        if res.get("user_id"):
+            print("\n📋 Oflayn saqlangan profil ma'lumotlari:")
+            if res.get("first_name"):
+                print(f"   👤 Ism-familiya : {res.get('first_name')}")
+            if res.get("username"):
+                print(f"   🏷️ Username      : @{res.get('username')}")
+            print(f"   🆔 Telegram ID   : {res.get('user_id')}")
+            if res.get("phone"):
+                print(f"   📞 Telefon       : +{res.get('phone')}")
+            if res.get("dc_list"):
+                print(f"   🔑 DC kalitlari  : {res.get('dc_list')}")
         print("=" * 60 + "\n")
         return False
 

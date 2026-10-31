@@ -161,12 +161,26 @@ Shundan so'ng ushbu `tdata` papkasi joylashgan Telegramni ochsangiz, u **hech qa
 ---
 
 ### 5-qadam: Sessiya Holatini Tekshirish
-Sessiyaning serverda tirikligini, akkaunt egasining ism-familiyasi, username, ID, telefon raqami va oxirgi chatlarini konsolda ko'rish:
+Sessiyaning serverda tirikligini, akkaunt egasining ism-familiyasi, username, ID, telefon raqami va oxirgi chatlarini konsolda ko'rish (hatto sessiya serverdan chiqarilgan bo'lsa ham, oflayn saqlangan profil ma'lumotlarini ko'rsatadi):
 ```bash
 python modules/session_checker.py --session account.session
 ```
 
-### 6-qadam: Barcha Testlarni Ishga Tushirish (Unit & E2E Test Suite)
+---
+
+### 6-qadam: TData Restorer & In-Place Passcode Unlocker (`--restore`)
+Har qanday backup arxivini (`.zip`, `.tar.xz`) yoki `tdata` papkasini **barcha 4 ta DC kalitlari (`[1, 2, 4, 5]`), `maps` (oflayn profil), qoralamalar (drafts), stikerlar va lokal kesh fayllarini 100% saqlagan holda** lokal PIN/parolni joyida olib tashlab (`create_unlocked_key_datas`), to'g'ridan-to'g'ri Telegram Desktop / UWP / Portable papkasiga tiklaydi:
+```bash
+# Parol ma'lum bo'lsa:
+python main.py --restore -s "TG_Backup_Windows_....zip" -t "C:\Telegram_Portable\tdata" -p 1111
+
+# Parol noma'lum bo'lsa (avtomatik 4-xonali PIN-kodni topib, parolsiz tiklash):
+python main.py --restore -s "TG_Backup_Windows_....zip" -t "C:\Telegram_Portable\tdata" --auto-crack
+```
+
+---
+
+### 7-qadam: Barcha Testlarni Ishga Tushirish (Unit & E2E Test Suite)
 Loyiha ichidagi barcha kriptografik funksiyalar, xotira hisoblashlari va to'liq tiklash zanjirini avtomatik sinovdan o'tkazish:
 ```bash
 python main.py --test
@@ -175,7 +189,7 @@ yoki:
 ```bash
 python tests/run_all_tests.py
 ```
-Ushbu skript 14 ta alohida testni (kriptotahlil, AES-IGE roundtrip, RAM tahlili, KD2 KDF, ko'p akkauntli hisoblashlar, real arxivlar va E2E to'liq zanjir) avtomatik bajaradi va hisobot beradi.
+Ushbu skript **17 ta alohida testni** (kriptotahlil, AES-IGE roundtrip, RAM tahlili, KD2 KDF, v7.x `kdf_id=0` stub, oflayn `lskSelfSerialized` profilni ajratish, ko'p akkauntli hisoblashlar, joyida parolni olib tashlab tiklash va E2E to'liq zanjir) avtomatik bajaradi va hisobot beradi.
 
 ---
 
@@ -234,9 +248,10 @@ Telegram_Security_Toolkit/
 │   ├── __init__.py
 │   ├── harvester.py               # TData qidiruvchi va ixcham ZIP qiluvchi
 │   ├── cracker.py                 # Ko'p oqimli adaptiv KD2 brute-force
-│   ├── session_extractor.py       # Shifrdan toza .session ajratuvchi
+│   ├── session_extractor.py       # Shifrdan toza .session va oflayn profil ajratuvchi
 │   ├── session_to_tdata.py        # .session faylini parolsiz tdata ga aylantiruvchi
-│   └── session_checker.py         # Sessiya tirikligi va profil ma'lumotlarini tekshiruvchi
+│   ├── session_checker.py         # Sessiya tirikligi va profil ma'lumotlarini tekshiruvchi
+│   └── restorer.py                # Backupni parolsiz holatda to'liq tiklovchi (In-Place Unlocker)
 │
 ├── patches/                       # Python 3.13+ moslashuvchanlik paketi
 │   ├── README.md                  # Python 3.13 dagi xato sabablari va tahlili

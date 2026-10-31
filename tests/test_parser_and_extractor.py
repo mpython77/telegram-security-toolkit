@@ -152,6 +152,67 @@ class TestParserAndExtractor(unittest.TestCase):
         self.assertEqual(meta["indexes"], [0])
         self.assertEqual(meta["active_index"], 0)
 
+    def test_kd2_stub_kdf_id_0(self):
+        """
+        Tests Telegram Desktop v5.x-v7.x+ key_datas when NO passcode is set,
+        which appends a 16-byte 'KD2\\x00' stub with kdf_id=0 at the end of key_datas.
+        """
+        import struct
+        from core.crypto import derive_pbkdf2_wrap_key, encrypt_local_block
+
+        local_key = os.urandom(256)
+        salt = os.urandom(32)
+        pass_key = derive_pbkdf2_wrap_key("", salt)
+        key_enc = encrypt_local_block(local_key, pass_key)
+        info_enc = encrypt_local_block(struct.pack(">iii", 1, 0, 0), local_key)
+        kd2_stub = b"KD2\x00" + struct.pack(">III", 2, 0, 0)
+
+        def qba(b: bytes) -> bytes:
+            return struct.pack(">I", len(b)) + b
+
+        payload = qba(salt) + qba(key_enc) + qba(info_enc) + qba(kd2_stub)
+        raw_tdf = TDataParser.write_tdf(payload, version=7003003)
+
+        kd2 = TDataParser.parse_kd2(raw_tdf)
+        self.assertEqual(kd2.kdf_id, 0)
+        ok, recovered_lk = verify_kd2_candidate("", kd2.salt, kd2.key128, kd2.ciphertext, kdf_id=kd2.kdf_id)
+        self.assertTrue(ok)
+        self.assertEqual(recovered_lk, local_key)
+
+    def test_offline_profile_extraction(self):
+        """
+        Tests offline user profile extraction (lskSelfSerialized) from <account>/maps
+        in both Backup 1 and Backup 2 without connecting to Telegram servers.
+        """
+        import zipfile
+
+        if BACKUP_1.exists():
+            kd2_1, s_files_1 = TDataParser.load_from_zip(BACKUP_1)
+            ok1, lk1 = verify_kd2_candidate("1111", kd2_1.salt, kd2_1.key128, kd2_1.ciphertext)
+            self.assertTrue(ok1)
+            with zipfile.ZipFile(BACKUP_1) as zf:
+                maps_1 = zf.read([n for n in zf.namelist() if n.endswith("D877F783D5D3EF8C/maps")][0])
+            prof1 = DCExtractor.extract_offline_profile(maps_1, lk1)
+            self.assertIsNotNone(prof1)
+            self.assertEqual(prof1.first_name, "Möydinov")
+            self.assertEqual(prof1.last_name, "Doston")
+            self.assertEqual(prof1.phone, "998913434402")
+            self.assertEqual(prof1.username, "Foreveri7")
+            self.assertIn("Solo leveling", prof1.bio)
+
+        if BACKUP_2.exists():
+            kd2_2, s_files_2 = TDataParser.load_from_zip(BACKUP_2)
+            ok2, lk2 = verify_kd2_candidate("9562", kd2_2.salt, kd2_2.key128, kd2_2.ciphertext)
+            self.assertTrue(ok2)
+            with zipfile.ZipFile(BACKUP_2) as zf:
+                maps_2 = zf.read([n for n in zf.namelist() if n.endswith("D877F783D5D3EF8C/maps")][0])
+            prof2 = DCExtractor.extract_offline_profile(maps_2, lk2)
+            self.assertIsNotNone(prof2)
+            self.assertEqual(prof2.first_name, "FAXRIDDINOVICH_._")
+            self.assertEqual(prof2.phone, "998503027275")
+            self.assertEqual(prof2.username, "faxriddinovich2005")
+            self.assertTrue(len(prof2.bio) > 5)
+
 
 if __name__ == "__main__":
     unittest.main()

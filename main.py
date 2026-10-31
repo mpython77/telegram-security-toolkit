@@ -19,11 +19,12 @@ if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
 
 from patches.patch_opentele import apply_patch
-from modules.harvester import main as run_harvester_cli, run_harvest
+from modules.harvester import main as run_harvester_cli, run_harvest, find_all_tdata
 from modules.cracker import main as run_cracker_cli, KD2Cracker
 from modules.session_extractor import main as run_extractor_cli, extract_session_from_backup
 from modules.session_to_tdata import main as run_converter_cli, convert_session
 from modules.session_checker import main as run_checker_cli, check_session_cli
+from modules.restorer import main as run_restorer_cli, unlock_and_restore_tdata
 
 
 BANNER = r"""
@@ -47,7 +48,8 @@ Foydalanish:
   python main.py --extract [opsiyalar]   Arxiv/tdata dan Telethon .session ajratish
   python main.py --convert [opsiyalar]   .session faylini parolsiz toza tdata qilish
   python main.py --check   [opsiyalar]   .session faolligini va profilni tekshirish
-  python main.py --patch                 Python 3.13/3.14+ OpenTele patchini o'rnatish
+  python main.py --restore [opsiyalar]   Arxiv/tdata ni parolini yechib Telegram'ga tiklash
+  python main.py --patch                 Python 3.13/3.14+ va Telegram v7.x+ OpenTele patchi
   python main.py --test                  Barcha avtomatlashtirilgan testlarni bajarish
 """
 
@@ -60,12 +62,13 @@ def interactive_menu():
         print("  [3] 🔑 Session Extractor (Arxivdan toza Telethon .session ajratib olish)")
         print("  [4] 🚀 Session -> TData Converter (.session faylini parolsiz tdata ga aylantirish)")
         print("  [5] 🔍 Session Health Checker (Sessiya holati, profil va qurilmalarni tekshirish)")
-        print("  [6] 🩹 Python 3.13 / 3.14 OpenTele Patchini tekshirish va o'rnatish")
+        print("  [6] 🔄 TData Restorer & Passcode Unlocker (Arxivni parolsiz holatda to'liq tiklash)")
+        print("  [7] 🩹 Python 3.13/3.14+ & Telegram v7.x+ OpenTele Patchini o'rnatish")
         print("  [0] ❌ Chiqish")
         print("=" * 70)
 
         try:
-            choice = input("Tanlovingizni kiriting [0-6]: ").strip()
+            choice = input("Tanlovingizni kiriting [0-7]: ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nDastur yakunlandi. Xayr!")
             break
@@ -138,7 +141,29 @@ def interactive_menu():
                 check_session_cli(sess)
 
             elif choice == "6":
-                print("\n--- 6. OpenTele Patch ---")
+                print("\n--- 6. TData Restorer & In-Place Passcode Unlocker ---")
+                src = input("ZIP/XZ arxiv yoki tdata papkasi yo'li: ").strip().strip('"')
+                tgt = input("Tiklanadigan tdata yo'li (tizimdan avtomatik topish uchun bo'sh qoldiring): ").strip().strip('"')
+                if not tgt:
+                    cands = find_all_tdata()
+                    if not cands:
+                        print("❌ Tizimda tdata topilmadi! Yo'lni qo'lda kiriting.")
+                        continue
+                    for idx, c_path in enumerate(cands, 1):
+                        print(f"   {idx}. {c_path}")
+                    sel = input(f"Tanlang [1-{len(cands)}, standart=1]: ").strip() or "1"
+                    tgt = str(cands[int(sel) - 1])
+                pwd = input("Lokal PIN/Parol (avtomatik topish yoki parolsiz bo'lsa bo'sh qoldiring): ").strip()
+                auto_c = input("Agar parol bo'lsa, 4-xonali PIN-kodni avtomatik ochsinmi? (y/n) [y]: ").strip().lower()
+                unlock_and_restore_tdata(
+                    source=src,
+                    target_tdata=tgt,
+                    passcode=pwd if pwd else None,
+                    auto_crack_pin4=(auto_c != "n"),
+                )
+
+            elif choice == "7":
+                print("\n--- 7. OpenTele Patch ---")
                 apply_patch()
 
             else:
@@ -174,6 +199,9 @@ if __name__ == "__main__":
         elif subcmd == "--check":
             sys.argv.pop(1)
             run_checker_cli()
+        elif subcmd in ["--restore", "-r", "--unlock"]:
+            sys.argv.pop(1)
+            run_restorer_cli()
         elif subcmd == "--patch":
             apply_patch()
         elif subcmd == "--test":

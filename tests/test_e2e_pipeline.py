@@ -23,9 +23,11 @@ from core.tdata_parser import TDataParser
 from core.session_manager import SessionManager
 from modules.cracker import KD2Cracker
 from modules.session_extractor import extract_session_from_backup
+from modules.restorer import unlock_and_restore_tdata
 
 WORKSPACE_DIR = TOOLKIT_ROOT.parent
 BACKUP_1 = WORKSPACE_DIR / "TG_Backup_Windows_2026-10-27_22-56-03.zip"
+BACKUP_2 = WORKSPACE_DIR / "TG_Backup_Windows_2026-10-27_11-37-16 (3).zip"
 
 
 class TestE2EPipeline(unittest.TestCase):
@@ -116,6 +118,46 @@ class TestE2EPipeline(unittest.TestCase):
 
         self.assertEqual(dc2, 2)
         self.assertEqual(ak2, auth_key)
+
+    def test_inplace_unlock_and_restore_both_backups(self):
+        """
+        Tests unlock_and_restore_tdata on both real encrypted backups (1111 and 9562),
+        verifying that in-place passcode removal preserves all 4 DC keys [1, 2, 4, 5],
+        offline profile, inner cache files, and loads natively in OpenTele TDesktop!
+        """
+        from opentele.td import TDesktop
+
+        for idx, (backup_zip, pin, expected_uid, expected_uname) in enumerate(
+            [
+                (BACKUP_1, "1111", 1684305595, "Foreveri7"),
+                (BACKUP_2, "9562", 6769431746, "faxriddinovich2005"),
+            ],
+            1,
+        ):
+            if not backup_zip.exists():
+                continue
+
+            target_dir = self.test_dir / f"restored_tdata_{idx}"
+            res = unlock_and_restore_tdata(
+                source=backup_zip,
+                target_tdata=target_dir,
+                passcode=pin,
+                create_backup=False,
+            )
+            self.assertTrue(res["was_locked"])
+            self.assertIn("D877F783D5D3EF8C", res["accounts"])
+            acc_meta = res["accounts"]["D877F783D5D3EF8C"]
+            self.assertEqual(acc_meta["user_id"], expected_uid)
+            self.assertEqual(acc_meta["dcs"], [1, 2, 4, 5])
+            self.assertEqual(acc_meta["profile"]["username"], expected_uname)
+
+            # Verify OpenTele TDesktop loads the restored tdata natively with NO passcode!
+            td = TDesktop(str(target_dir))
+            self.assertTrue(td.isLoaded())
+            self.assertEqual(td.mainAccount.UserId, expected_uid)
+            self.assertEqual(int(td.mainAccount.MainDcId), 2)
+            loaded_dcs = sorted([int(k.dcId) for k in td.mainAccount._Account__mtpKeys])
+            self.assertEqual(loaded_dcs, [1, 2, 4, 5])
 
 
 if __name__ == "__main__":
