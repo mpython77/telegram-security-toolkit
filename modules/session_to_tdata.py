@@ -1,12 +1,14 @@
 """
 Session to TData Converter
-Converts a Telethon SQLite .session file into clean, unencrypted Telegram Desktop tdata.
+Converts one or multiple Telethon SQLite .session files into clean, unencrypted
+Telegram Desktop tdata using a 100% Pure-Python native serializer (zero PyQt5/opentele requirement).
 """
 
 import sys
 import asyncio
 import argparse
 from pathlib import Path
+from typing import Union, Sequence
 
 if sys.platform == "win32":
     try:
@@ -20,46 +22,54 @@ PARENT_DIR = CURRENT_DIR.parent
 if str(PARENT_DIR) not in sys.path:
     sys.path.insert(0, str(PARENT_DIR))
 
-# Ensure opentele patch is active for Python 3.13+
-from patches.patch_opentele import apply_patch
 from core.session_manager import SessionManager
 
 
-def convert_session(session_path: str, output_tdata: str):
-    sess_file = Path(session_path)
-    if not sess_file.exists():
-        raise FileNotFoundError(f"Sessiya fayli topilmadi: {sess_file}")
+def convert_session(
+    session_path: Union[str, Path, Sequence[Union[str, Path]]],
+    output_tdata: Union[str, Path],
+    use_opentele: bool = False,
+) -> Path:
+    if isinstance(session_path, (str, Path)):
+        sess_list = [Path(session_path)]
+    else:
+        sess_list = [Path(p) for p in session_path]
+
+    for s_file in sess_list:
+        if not s_file.exists():
+            raise FileNotFoundError(f"Sessiya fayli topilmadi: {s_file}")
 
     out_dir = Path(output_tdata)
 
     print("=" * 60)
-    print("Telegram Session -> Toza TData Konverter")
-    print(f"Kirish sessiyasi : {sess_file.name}")
-    print(f"Chiqish papkasi  : {out_dir}")
+    print("Telegram Session -> Toza TData Konverter (Pure-Python Engine)")
+    print(f"Kirish sessiyalari : {', '.join(s.name for s in sess_list)} ({len(sess_list)} ta)")
+    print(f"Chiqish papkasi    : {out_dir}")
     print("=" * 60)
 
-    # Ensure OpenTele patch is applied
-    apply_patch()
-
-    print("⏳ Telegram serveriga ulanmoqda va tdata generatsiya qilinmoqda...")
-    asyncio.run(SessionManager.session_to_tdata(sess_file, out_dir))
+    print("⏳ TData strukturalari generatsiya qilinmoqda...")
+    asyncio.run(SessionManager.session_to_tdata(sess_list, out_dir, use_opentele=use_opentele))
 
     print("\n🎉 MUVAFFAQIYATLI YAKUNLANDI!")
-    print(f"Toza, parolsiz tdata quyidagi manzilga saqlandi:")
+    print("Toza, parolsiz tdata quyidagi manzilga saqlandi:")
     print(f"👉 {out_dir.resolve()}")
     print("\n💡 Ko'rsatma:")
     print("Ushbu tdata papkasini istalgan Telegram Desktop (yoki Portable) papkasiga joylashtiring.")
     print("Telegram ochilganda hech qanday parol yoki SMS so'ramasdan to'g'ridan-to'g'ri ishga tushadi.")
+    return out_dir
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Convert Telethon .session to Telegram Desktop tdata")
-    parser.add_argument("--session", "-s", required=True, help="Kirish .session fayli yo'li")
+    parser = argparse.ArgumentParser(description="Convert Telethon .session(s) to Telegram Desktop tdata")
+    parser.add_argument(
+        "--session", "-s", nargs="+", required=True, help="Bitta yoki bir nechta kirish .session fayli yo'li"
+    )
     parser.add_argument("--output", "-o", required=True, help="Chiqish tdata papkasi yo'li")
+    parser.add_argument("--opentele", action="store_true", help="Pure-Python o'rniga eski opentele dvigatelini ishlatish")
 
     args = parser.parse_args()
     try:
-        convert_session(args.session, args.output)
+        convert_session(args.session, args.output, use_opentele=args.opentele)
     except Exception as e:
         print(f"❌ Xatolik yuz berdi: {e}")
         sys.exit(1)

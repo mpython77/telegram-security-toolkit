@@ -180,8 +180,16 @@ python main.py --restore -s "TG_Backup_Windows_....zip" -t "C:\Telegram_Portable
 
 ---
 
-### 7-qadam: Barcha Testlarni Ishga Tushirish (Unit & E2E Test Suite)
-Loyiha ichidagi barcha kriptografik funksiyalar, xotira hisoblashlari va to'liq tiklash zanjirini avtomatik sinovdan o'tkazish:
+### 8-qadam: Oflayn Kriministik Tahlil va JSON Audit (`--analyze`)
+Tarmoqqa umuman ulanmasdan (100% oflayn va iz qoldirmasdan) har qanday `.zip`, `.tar.xz`, `tdata` papkasi yoki `.session` faylning SHA-256 xeshini, barcha `TDF$` fayllarning MD5 butunligini, KDF parametrlarini, har bir DC kalitining 64-bitli MTProto `auth_key_id` barmoq izini va `maps` ichidagi barcha `lskType` bloklarini (`lskSelfSerialized`, `lskDraft`, `lskStickersKeys`, `lskCustomEmojiKeys`, `lskWebviewTokens`) tahlil qiladi:
+```bash
+python main.py --analyze -s "TG_Backup_Windows_....zip" -p 1111 -j audit_report.json
+```
+
+---
+
+### 9-qadam: Barcha Testlarni Ishga Tushirish (Unit & E2E Test Suite)
+Loyiha ichidagi barcha kriptografik funksiyalar, xotira hisoblashlari, Zip-Slip himoyasi, Pure-Python multi-account `tdata` konvertatsiyasi va to'liq tiklash zanjirini avtomatik sinovdan o'tkazish:
 ```bash
 python main.py --test
 ```
@@ -189,7 +197,7 @@ yoki:
 ```bash
 python tests/run_all_tests.py
 ```
-Ushbu skript **17 ta alohida testni** (kriptotahlil, AES-IGE roundtrip, RAM tahlili, KD2 KDF, v7.x `kdf_id=0` stub, oflayn `lskSelfSerialized` profilni ajratish, ko'p akkauntli hisoblashlar, joyida parolni olib tashlab tiklash va E2E to'liq zanjir) avtomatik bajaradi va hisobot beradi.
+Ushbu skript **22 ta alohida testni** (kriptotahlil, AES-IGE roundtrip, RAM tahlili, KD2 KDF, v7.x `kdf_id=0` stub, Zip-Slip path traversal himoyasi, `.tar.xz` universal o'qish, ko'p blokli `maps` TLV va avatarsi profil parslovi, Pure-Python multi-account `session_to_tdata_native`, oflayn kriministik JSON audit va E2E to'liq zanjir) avtomatik bajaradi va hisobot beradi.
 
 ---
 

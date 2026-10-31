@@ -3,7 +3,6 @@ Telegram Security & Forensics Toolkit
 Main Orchestrator & CLI Interface
 """
 
-import os
 import sys
 from pathlib import Path
 
@@ -25,6 +24,7 @@ from modules.session_extractor import main as run_extractor_cli, extract_session
 from modules.session_to_tdata import main as run_converter_cli, convert_session
 from modules.session_checker import main as run_checker_cli, check_session_cli
 from modules.restorer import main as run_restorer_cli, unlock_and_restore_tdata
+from modules.forensic_analyzer import main as run_analyzer_cli, analyze_source
 
 
 BANNER = r"""
@@ -46,9 +46,10 @@ Foydalanish:
   python main.py --harvest [opsiyalar]   TData qidirish va ixcham ZIP arxiv yaratish
   python main.py --crack   [opsiyalar]   KD2 / PBKDF2 parolni multi-core sindirish
   python main.py --extract [opsiyalar]   Arxiv/tdata dan Telethon .session ajratish
-  python main.py --convert [opsiyalar]   .session faylini parolsiz toza tdata qilish
+  python main.py --convert [opsiyalar]   .session fayl(lar)ini parolsiz toza tdata qilish
   python main.py --check   [opsiyalar]   .session faolligini va profilni tekshirish
   python main.py --restore [opsiyalar]   Arxiv/tdata ni parolini yechib Telegram'ga tiklash
+  python main.py --analyze [opsiyalar]   100% oflayn kriministik audit va JSON hisobot
   python main.py --patch                 Python 3.13/3.14+ va Telegram v7.x+ OpenTele patchi
   python main.py --test                  Barcha avtomatlashtirilgan testlarni bajarish
 """
@@ -60,15 +61,16 @@ def interactive_menu():
         print("  [1] 📦 Telegram TData Harvester (Keraksiz keshni tashlab, ixcham ZIP yaratish)")
         print("  [2] 🔓 KD2 Passcode Cracker (Argon2id + AES-IGE PIN kodni multi-core sindirish)")
         print("  [3] 🔑 Session Extractor (Arxivdan toza Telethon .session ajratib olish)")
-        print("  [4] 🚀 Session -> TData Converter (.session faylini parolsiz tdata ga aylantirish)")
+        print("  [4] 🚀 Session -> TData Converter (.session fayl(lar)ini parolsiz tdata qilish)")
         print("  [5] 🔍 Session Health Checker (Sessiya holati, profil va qurilmalarni tekshirish)")
         print("  [6] 🔄 TData Restorer & Passcode Unlocker (Arxivni parolsiz holatda to'liq tiklash)")
-        print("  [7] 🩹 Python 3.13/3.14+ & Telegram v7.x+ OpenTele Patchini o'rnatish")
+        print("  [7] 🔬 Offline Forensic Analyzer (100% oflayn kriministik audit va JSON hisobot)")
+        print("  [8] 🩹 Python 3.13/3.14+ & Telegram v7.x+ OpenTele Patchini o'rnatish")
         print("  [0] ❌ Chiqish")
         print("=" * 70)
 
         try:
-            choice = input("Tanlovingizni kiriting [0-7]: ").strip()
+            choice = input("Tanlovingizni kiriting [0-8]: ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nDastur yakunlandi. Xayr!")
             break
@@ -86,7 +88,7 @@ def interactive_menu():
 
             elif choice == "2":
                 print("\n--- 2. KD2 Passcode Cracker ---")
-                src = input("ZIP arxiv yoki tdata papkasi yo'lini kiriting: ").strip().strip('"')
+                src = input("ZIP/XZ arxiv yoki tdata papkasi yo'lini kiriting: ").strip().strip('"')
                 if not src:
                     print("❌ Manba kiritilmadi!")
                     continue
@@ -114,7 +116,7 @@ def interactive_menu():
 
             elif choice == "3":
                 print("\n--- 3. Session Extractor ---")
-                src = input("ZIP arxiv yoki tdata papkasi yo'li: ").strip().strip('"')
+                src = input("ZIP/XZ arxiv yoki tdata papkasi yo'li: ").strip().strip('"')
                 pwd = input("Lokal PIN/Parol (agar parolsiz bo'lsa, bo'sh qoldiring): ").strip()
                 key_f = input("Yoki found_local_key.bin fayl yo'li (bo'sh qoldirish mumkin): ").strip().strip('"')
                 dc = input("Maqsadli DC ID [standart: avtomatik MainDC]: ").strip()
@@ -163,7 +165,18 @@ def interactive_menu():
                 )
 
             elif choice == "7":
-                print("\n--- 7. OpenTele Patch ---")
+                print("\n--- 7. Offline Forensic Analyzer ---")
+                src = input("ZIP/XZ arxiv, tdata papkasi yoki .session fayli yo'li: ").strip().strip('"')
+                pwd = input("Lokal PIN/Parol (agar ma'lum bo'lsa, bo'sh qoldirish mumkin): ").strip()
+                json_out = input("JSON hisobot saqlash yo'li (ixtiyoriy, masalan audit.json): ").strip().strip('"')
+                analyze_source(
+                    source=src,
+                    passcode=pwd if pwd else None,
+                    output_json=json_out if json_out else None,
+                )
+
+            elif choice == "8":
+                print("\n--- 8. OpenTele Patch ---")
                 apply_patch()
 
             else:
@@ -202,6 +215,9 @@ if __name__ == "__main__":
         elif subcmd in ["--restore", "-r", "--unlock"]:
             sys.argv.pop(1)
             run_restorer_cli()
+        elif subcmd in ["--analyze", "-a", "--audit"]:
+            sys.argv.pop(1)
+            run_analyzer_cli()
         elif subcmd == "--patch":
             apply_patch()
         elif subcmd == "--test":

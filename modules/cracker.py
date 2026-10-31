@@ -68,14 +68,9 @@ class KD2Cracker:
     @classmethod
     def from_source(cls, source: Union[str, Path], max_workers: Optional[int] = None) -> "KD2Cracker":
         source_path = Path(source)
-        if source_path.is_file() and source_path.suffix.lower() == ".zip":
-            kd2_info, _ = TDataParser.load_from_zip(source_path)
-        elif source_path.is_file() and source_path.name.startswith("key_data"):
-            kd2_info = TDataParser.parse_kd2(source_path.read_bytes())
-        elif source_path.is_dir():
-            kd2_info, _ = TDataParser.load_from_dir(source_path)
-        else:
-            raise ValueError(f"Noma'lum manba formati: {source_path}")
+        if not source_path.exists():
+            raise FileNotFoundError(f"Manba topilmadi: {source_path}")
+        kd2_info, _ = TDataParser.load_from_source(source_path)
         return cls(kd2_info, max_workers=max_workers)
 
     def crack(
@@ -83,9 +78,11 @@ class KD2Cracker:
         candidates: List[str],
         batch_size: Optional[int] = None,
         output_dir: Optional[Union[str, Path]] = None,
+        save_artifacts: bool = True,
     ) -> Optional[Tuple[str, bytes]]:
         out_dir = Path(output_dir) if output_dir else Path.cwd()
-        out_dir.mkdir(parents=True, exist_ok=True)
+        if save_artifacts:
+            out_dir.mkdir(parents=True, exist_ok=True)
         total = len(candidates)
         if total == 0:
             print("⚠️ Tekshirish uchun kombinatsiyalar ro'yxati bo'sh!")
@@ -106,8 +103,9 @@ class KD2Cracker:
             print("🎉 AKKAUNTDA LOKAL PAROL O'RNATILMAGAN (Bo'sh parol '')!")
             print(f"Master LocalKey: {lk_empty[:16].hex()}... ({len(lk_empty)} bayt)")
             print("=" * 65 + "\n")
-            (out_dir / "found_passcode.txt").write_text("\n", encoding="utf-8")
-            (out_dir / "found_local_key.bin").write_bytes(lk_empty)
+            if save_artifacts:
+                (out_dir / "found_passcode.txt").write_text("\n", encoding="utf-8")
+                (out_dir / "found_local_key.bin").write_bytes(lk_empty)
             return "", lk_empty
 
         # Auto-compute dynamic batch size based on candidates and workers
@@ -167,10 +165,10 @@ class KD2Cracker:
                     print(f"Sarflangan vaqt: {dt:.1f} soniya ({done_count}/{total})")
                     print("=" * 65 + "\n")
 
-                    # Save to files
-                    (out_dir / "found_passcode.txt").write_text(f"{pwd}\n", encoding="utf-8")
-                    (out_dir / "found_local_key.bin").write_bytes(local_key)
-                    print(f"✅ Natijalar saqlandi: {out_dir / 'found_passcode.txt'}")
+                    if save_artifacts:
+                        (out_dir / "found_passcode.txt").write_text(f"{pwd}\n", encoding="utf-8")
+                        (out_dir / "found_local_key.bin").write_bytes(local_key)
+                        print(f"✅ Natijalar saqlandi: {out_dir / 'found_passcode.txt'}")
 
                     # Cancel remaining tasks
                     for f in future_to_batch:

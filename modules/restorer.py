@@ -40,18 +40,15 @@ from modules.cracker import KD2Cracker
 
 def _extract_source_to_temp(source_path: Path, temp_dir: Path) -> Path:
     """
-    Extracts a .zip / .tar.xz / .xz archive or copies a tdata folder into temp_dir,
-    returning the path to the folder containing key_datas.
+    Safely extracts a .zip / .tar.xz / .tar.gz archive (with Zip-Slip protection)
+    or copies a tdata folder into temp_dir, returning the path to the folder containing key_datas.
     """
     if source_path.is_file():
-        suffix = source_path.suffix.lower()
-        if suffix == ".zip":
-            with zipfile.ZipFile(source_path, "r") as zf:
-                zf.extractall(temp_dir)
-        elif suffix == ".xz":
-            with lzma.open(source_path, "rb") as f_in:
-                with tarfile.open(fileobj=f_in) as tar:
-                    tar.extractall(temp_dir)
+        name_low = source_path.name.lower()
+        if name_low.endswith(".zip"):
+            TDataParser.safe_extract_zip(source_path, temp_dir)
+        elif name_low.endswith((".tar.xz", ".xz", ".tar.gz", ".tgz", ".tar")):
+            TDataParser.safe_extract_tar(source_path, temp_dir)
         else:
             raise ValueError(f"Qo'llab-quvvatlanmaydigan arxiv formati: {source_path.suffix}")
     elif source_path.is_dir():
@@ -156,11 +153,8 @@ def unlock_and_restore_tdata(
                     "--passcode kiritishingiz yoki --auto-crack rejimini yoqishingiz kerak."
                 )
 
-        # 2. Verify all account session files in acc_dir and map them to account indexes (0, 1, 2)
-        index_by_folder: Dict[str, int] = {}
-        for idx in range(3):
-            f_part, _ = TDataParser.compute_account_filename(idx)
-            index_by_folder[f_part] = idx
+        # 2. Verify all account session files in acc_dir and map them to account indexes (0..15)
+        index_by_folder: Dict[str, int] = TDataParser.get_account_index_map()
 
         valid_accounts: Dict[str, MtpSessionInfo] = {}
         valid_indexes: List[int] = []

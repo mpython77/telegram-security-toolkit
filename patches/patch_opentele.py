@@ -90,31 +90,42 @@ def apply_patch() -> bool:
             "                break"
         )
         if "Modern Telegram Desktop (v4.x - v7.x+)" in acc_content:
-            print("✅ [2/2] opentele/td/account.py: Telegram v4.x-v7.x+ maps formati allaqachon patch qilingan.")
+            print("✅ [2/3] opentele/td/account.py: Telegram v4.x-v7.x+ maps formati allaqachon patch qilingan.")
             ok_account = True
         elif map_target in acc_content:
-            account_path.write_text(acc_content.replace(map_target, map_patched), encoding="utf-8")
-            print("🎉 [2/2] opentele/td/account.py: Telegram v4.x-v7.x+ maps formati muvaffaqiyatli patch qilindi!")
+            acc_content = acc_content.replace(map_target, map_patched)
+            account_path.write_text(acc_content, encoding="utf-8")
+            print("🎉 [2/3] opentele/td/account.py: Telegram v4.x-v7.x+ maps formati muvaffaqiyatli patch qilindi!")
             ok_account = True
         else:
-            print("⚠️ [2/2] opentele/td/account.py: maps qatori o'zgartirilgan.")
+            print("⚠️ [2/3] opentele/td/account.py: maps qatori o'zgartirilgan.")
             ok_account = True
+
+        # [3/3] Fix OpenTele multi-account infinite RecursionError in Account.api setter
+        api_rec_target = "        if self.owner.api != self.api:\n            self.owner.api = self.api"
+        api_rec_patched = (
+            "        if getattr(self.owner.api, 'api_id', None) != getattr(self.api, 'api_id', None):\n"
+            "            self.owner.api = self.api"
+        )
+        if "getattr(self.owner.api, 'api_id', None)" in acc_content:
+            print("✅ [3/3] opentele/td/account.py: Multi-account RecursionError allaqachon tuzatilgan.")
+        elif api_rec_target in acc_content:
+            acc_content = acc_content.replace(api_rec_target, api_rec_patched)
+            account_path.write_text(acc_content, encoding="utf-8")
+            print("🎉 [3/3] opentele/td/account.py: Multi-account RecursionError muvaffaqiyatli tuzatildi!")
 
     return ok_utils and ok_account
 
 
-def apply_runtime_patch():
+def apply_runtime_patch() -> bool:
     """
-    Applies the patch in-memory before importing opentele.td or opentele.tl.
-    Can be safely called at the start of any script!
+    Applies the Python 3.13/3.14+ compatibility patch in-memory if filesystem write
+    is not possible or before importing opentele submodules.
     """
     try:
-        import opentele.utils
-        # If already imported or patched, ensure extend_class works
-        orig_extend = opentele.utils.extend_class
-        # No-op if already working
+        return apply_patch()
     except Exception:
-        pass
+        return False
 
 
 if __name__ == "__main__":
