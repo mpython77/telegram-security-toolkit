@@ -92,7 +92,7 @@ class DCExtractor:
         Lower 64 bits (last 8 bytes) of SHA-1(auth_key) as unsigned 64-bit little-endian integer.
         """
         if len(auth_key) < 256:
-            raise ValueError(f"AuthKey 256 bayt bo'lishi shart (berildi: {len(auth_key)} bayt)")
+            raise ValueError(f"AuthKey must be at least 256 bytes (got: {len(auth_key)} bytes)")
         sha1_digest = hashlib.sha1(auth_key[:256]).digest()
         return int.from_bytes(sha1_digest[-8:], "little", signed=False)
 
@@ -117,7 +117,7 @@ class DCExtractor:
 
         enc_len = struct.unpack_from(">I", payload, 0)[0]
         if enc_len == 0xFFFFFFFF or 4 + enc_len > len(payload) or enc_len < 32:
-            raise ValueError(f"Noto'g'ri shifrlangan blok uzunligi: {enc_len}")
+            raise ValueError(f"Invalid encrypted block length: {enc_len}")
 
         enc_data = payload[4 : 4 + enc_len]
         key128 = enc_data[:16]
@@ -129,7 +129,7 @@ class DCExtractor:
 
         # Verify MTProto Local Storage SHA-1 checksum
         if hashlib.sha1(decrypted).digest()[:16] != key128:
-            raise ValueError("Sessiya fayli SHA-1 tekshiruvidan o'tmadi (boshqa LocalKey bilan shifrlangan)")
+            raise ValueError("Session file failed SHA-1 integrity check (encrypted with a different LocalKey)")
 
         size = struct.unpack_from("<I", decrypted, 0)[0]
         full_len = len(decrypted)
@@ -137,7 +137,7 @@ class DCExtractor:
             return decrypted[4:size]
         elif 0 <= size <= full_len - 4:
             return decrypted[4 : 4 + size]
-        raise ValueError(f"Ichki blok hajmi noto'g'ri: {size} > {full_len - 4}")
+        raise ValueError(f"Invalid inner payload size: {size} > {full_len - 4}")
 
     @classmethod
     def inspect_maps_blocks(cls, maps_raw: bytes, local_key: bytes) -> Dict[str, Any]:
@@ -395,7 +395,7 @@ class DCExtractor:
         encrypted Telegram Desktop .s TDF$ binary buffer in 100% pure Python (no PyQt5/opentele).
         """
         if not dc_keys:
-            raise ValueError("Kamida bitta DC kaliti bo'lishi shart")
+            raise ValueError("At least one DC key must be provided")
 
         # kWideIdsTag (-1, -1) + 64-bit UserId + 32-bit MainDcId
         mtp_auth = struct.pack(">iiQi", -1, -1, int(user_id), int(main_dc_id))
@@ -446,15 +446,15 @@ class DCExtractor:
         """
         inner = cls.decrypt_session_data(session_s_raw, local_key)
         if len(inner) < 16:
-            raise ValueError("Shifrdan yechilgan sessiya ma'lumotlari juda qisqa")
+            raise ValueError("Decrypted session payload is too short")
 
         block_id = struct.unpack_from(">i", inner, 0)[0]
         if block_id != cls.DBI_MTP_AUTHORIZATION:
-            raise ValueError(f"Noto'g'ri blok identifikatori: {block_id} (kutilgan: {cls.DBI_MTP_AUTHORIZATION})")
+            raise ValueError(f"Invalid block identifier: {block_id} (expected: {cls.DBI_MTP_AUTHORIZATION})")
 
         qba_len = struct.unpack_from(">I", inner, 4)[0]
         if qba_len == 0xFFFFFFFF or 8 + qba_len > len(inner):
-            raise ValueError(f"Noto'g'ri mtp_authorization uzunligi: {qba_len}")
+            raise ValueError(f"Invalid mtp_authorization length: {qba_len}")
 
         mtp_auth = inner[8 : 8 + qba_len]
 
@@ -473,7 +473,7 @@ class DCExtractor:
         pos += 4
 
         if key_count < 0 or key_count > 32 or pos + key_count * 260 > len(mtp_auth):
-            raise ValueError(f"Noto'g'ri DC kalitlari soni: {key_count}")
+            raise ValueError(f"Invalid DC key count: {key_count}")
 
         dc_keys: Dict[int, bytes] = {}
         for _ in range(key_count):

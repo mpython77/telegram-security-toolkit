@@ -136,7 +136,7 @@ def get_optimal_worker_count(
     avail_ram = get_available_ram_mb()
 
     if user_override is not None and user_override > 0:
-        return user_override, f"Foydalanuvchi tomonidan qo'lda belgilangan: {user_override}"
+        return user_override, f"User manually specified: {user_override}"
 
     # Reserve 512 MB for OS and other background apps
     usable_ram = max(256.0, avail_ram - 512.0)
@@ -152,8 +152,8 @@ def get_optimal_worker_count(
     optimal = max(1, optimal)
 
     reason = (
-        f"CPU: {cpu_threads} oqim, Mavjud RAM: {avail_ram:.0f} MB -> "
-        f"Xavfsiz va optimal oqimlar: {optimal} ta"
+        f"CPU: {cpu_threads} threads, Available RAM: {avail_ram:.0f} MB -> "
+        f"Optimal safe workers: {optimal}"
     )
     return optimal, reason
 

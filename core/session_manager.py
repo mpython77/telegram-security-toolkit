@@ -249,7 +249,7 @@ class SessionManager:
                         **offline_public,
                         "authorized": False,
                         "status": "DUPLICATED",
-                        "error": "Sessiya kaliti bir vaqtning o'zida boshqa IP-manzildan ishlatilgani sababli Telegram serveri tomonidan bekor qilingan (AuthKeyDuplicatedError).",
+                        "error": "Session authorization key was revoked by Telegram server because it was simultaneously used from another IP address (AuthKeyDuplicatedError).",
                         "session_path": str(sess_file),
                     }
                 elif "AuthKeyUnregistered" in err_type or "unregistered" in err_str.lower():
@@ -257,7 +257,7 @@ class SessionManager:
                         **offline_public,
                         "authorized": False,
                         "status": "UNREGISTERED",
-                        "error": "Sessiya Telegram serveridan chiqarib yuborilgan yoki seans tugatilgan (AuthKeyUnregisteredError).",
+                        "error": "Session has been logged out or terminated on Telegram servers (AuthKeyUnregisteredError).",
                         "session_path": str(sess_file),
                     }
                 else:
@@ -265,7 +265,7 @@ class SessionManager:
                         **offline_public,
                         "authorized": False,
                         "status": "CONNECTION_ERROR",
-                        "error": f"Serverga ulanishda xatolik yuz berdi: {e}",
+                        "error": f"Connection error occurred while connecting to server: {e}",
                         "session_path": str(sess_file),
                     }
 
@@ -276,7 +276,7 @@ class SessionManager:
                     **offline_public,
                     "authorized": False,
                     "status": "REVOKED",
-                    "error": f"Avtorizatsiyani tekshirishda xatolik: {e}",
+                    "error": f"Error verifying authorization status: {e}",
                     "session_path": str(sess_file),
                 }
 
@@ -349,7 +349,7 @@ class SessionManager:
             sess_list = [Path(p) for p in session_paths]
 
         if not sess_list:
-            raise ValueError("Kamida bitta .session fayli ko'rsatilishi shart")
+            raise ValueError("At least one .session file must be specified")
 
         out_dir = Path(output_tdata_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -360,7 +360,7 @@ class SessionManager:
             if s_path.suffix != ".session":
                 s_path = s_path.with_suffix(".session")
             if not s_path.exists():
-                raise FileNotFoundError(f"Sessiya fayli topilmadi: {s_path}")
+                raise FileNotFoundError(f"Session file not found: {s_path}")
 
             meta = cls.read_offline_session_meta(s_path)
             dc_id = meta.get("dc_id")
@@ -369,7 +369,7 @@ class SessionManager:
             dc_keys = meta.get("dc_keys") or {}
 
             if not dc_id or not auth_key or len(auth_key) < 256:
-                raise ValueError(f"Sessiya faylida yaroqli AuthKey topilmadi: {s_path}")
+                raise ValueError(f"Valid AuthKey not found in session file: {s_path}")
 
             if not user_id or user_id <= 0:
                 # Fallback: connect online once to fetch self user_id if not cached offline
@@ -391,7 +391,7 @@ class SessionManager:
 
             if not user_id or user_id <= 0:
                 raise ValueError(
-                    f"Sessiya faylida User ID topilmadi va serverdan olib bo'lmadi: {s_path.name}"
+                    f"User ID not found in session file and could not be fetched from server: {s_path.name}"
                 )
 
             if dc_id not in dc_keys:

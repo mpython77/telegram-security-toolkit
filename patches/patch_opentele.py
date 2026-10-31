@@ -29,11 +29,11 @@ if sys.platform == "win32":
 def find_opentele_dir() -> Path:
     spec = importlib.util.find_spec("opentele")
     if spec is None or spec.origin is None:
-        raise FileNotFoundError("opentele kutubxonasi o'rnatilmagan! Avval 'pip install opentele' buyrug'ini bajaring.")
+        raise FileNotFoundError("opentele package is not installed! Run 'pip install opentele' first.")
 
     opentele_dir = Path(spec.origin).parent
     if not opentele_dir.exists():
-        raise FileNotFoundError(f"opentele papkasi topilmadi: {opentele_dir}")
+        raise FileNotFoundError(f"opentele directory not found: {opentele_dir}")
 
     return opentele_dir
 
@@ -41,23 +41,23 @@ def find_opentele_dir() -> Path:
 def find_opentele_utils_path() -> Path:
     utils_file = find_opentele_dir() / "utils.py"
     if not utils_file.exists():
-        raise FileNotFoundError(f"opentele/utils.py topilmadi: {utils_file}")
+        raise FileNotFoundError(f"opentele/utils.py not found: {utils_file}")
     return utils_file
 
 
 def apply_patch() -> bool:
     print("=" * 60)
-    print("OpenTele Python 3.13/3.14+ & Telegram v7.x+ Avtomatik Patch")
-    print(f"Joriy Python versiyasi: {sys.version.split()[0]}")
+    print("OpenTele Python 3.13/3.14+ & Telegram v7.x+ Automatic Patcher")
+    print(f"Current Python version: {sys.version.split()[0]}")
     print("=" * 60)
 
     try:
         opentele_dir = find_opentele_dir()
         utils_path = opentele_dir / "utils.py"
         account_path = opentele_dir / "td" / "account.py"
-        print(f"OpenTele joylashuvi: {opentele_dir}")
+        print(f"OpenTele location: {opentele_dir}")
     except Exception as e:
-        print(f"❌ Xatolik: {e}")
+        print(f"❌ Error: {e}")
         return False
 
     ok_utils = False
@@ -66,14 +66,14 @@ def apply_patch() -> bool:
     patched_line = 'crossDelete = ["__abstractmethods__", "__module__", "_abc_impl", "__doc__", "__firstlineno__", "__static_attributes__"]'
 
     if patched_line in content or "__firstlineno__" in content:
-        print("✅ [1/2] opentele/utils.py: Python 3.13/3.14+ uchun allaqachon moslashtirilgan.")
+        print("✅ [1/2] opentele/utils.py: Already compatible with Python 3.13/3.14+.")
         ok_utils = True
     elif old_target in content:
         utils_path.write_text(content.replace(old_target, patched_line), encoding="utf-8")
-        print("🎉 [1/2] opentele/utils.py: Python 3.13/3.14+ atributlari muvaffaqiyatli patch qilindi!")
+        print("🎉 [1/2] opentele/utils.py: Python 3.13/3.14+ attributes patched successfully!")
         ok_utils = True
     else:
-        print(f"⚠️ [1/2] opentele/utils.py ichida kutilgan qator topilmadi: {utils_path}")
+        print(f"⚠️ [1/2] opentele/utils.py: Expected target line not found: {utils_path}")
 
     ok_account = False
     if account_path.exists():
@@ -90,15 +90,15 @@ def apply_patch() -> bool:
             "                break"
         )
         if "Modern Telegram Desktop (v4.x - v7.x+)" in acc_content:
-            print("✅ [2/3] opentele/td/account.py: Telegram v4.x-v7.x+ maps formati allaqachon patch qilingan.")
+            print("✅ [2/3] opentele/td/account.py: Telegram v4.x-v7.x+ maps format already patched.")
             ok_account = True
         elif map_target in acc_content:
             acc_content = acc_content.replace(map_target, map_patched)
             account_path.write_text(acc_content, encoding="utf-8")
-            print("🎉 [2/3] opentele/td/account.py: Telegram v4.x-v7.x+ maps formati muvaffaqiyatli patch qilindi!")
+            print("🎉 [2/3] opentele/td/account.py: Telegram v4.x-v7.x+ maps format patched successfully!")
             ok_account = True
         else:
-            print("⚠️ [2/3] opentele/td/account.py: maps qatori o'zgartirilgan.")
+            print("⚠️ [2/3] opentele/td/account.py: maps target line modified or not found.")
             ok_account = True
 
         # [3/3] Fix OpenTele multi-account infinite RecursionError in Account.api setter
@@ -108,11 +108,11 @@ def apply_patch() -> bool:
             "            self.owner.api = self.api"
         )
         if "getattr(self.owner.api, 'api_id', None)" in acc_content:
-            print("✅ [3/3] opentele/td/account.py: Multi-account RecursionError allaqachon tuzatilgan.")
+            print("✅ [3/3] opentele/td/account.py: Multi-account RecursionError already fixed.")
         elif api_rec_target in acc_content:
             acc_content = acc_content.replace(api_rec_target, api_rec_patched)
             account_path.write_text(acc_content, encoding="utf-8")
-            print("🎉 [3/3] opentele/td/account.py: Multi-account RecursionError muvaffaqiyatli tuzatildi!")
+            print("🎉 [3/3] opentele/td/account.py: Multi-account RecursionError patched successfully!")
 
     return ok_utils and ok_account
 

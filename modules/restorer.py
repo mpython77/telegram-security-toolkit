@@ -50,15 +50,15 @@ def _extract_source_to_temp(source_path: Path, temp_dir: Path) -> Path:
         elif name_low.endswith((".tar.xz", ".xz", ".tar.gz", ".tgz", ".tar")):
             TDataParser.safe_extract_tar(source_path, temp_dir)
         else:
-            raise ValueError(f"Qo'llab-quvvatlanmaydigan arxiv formati: {source_path.suffix}")
+            raise ValueError(f"Unsupported archive format: {source_path.suffix}")
     elif source_path.is_dir():
         shutil.copytree(source_path, temp_dir / "source_tdata", dirs_exist_ok=True)
     else:
-        raise FileNotFoundError(f"Manba topilmadi: {source_path}")
+        raise FileNotFoundError(f"Source not found: {source_path}")
 
     kd_files = sorted(list(temp_dir.rglob("key_datas")))
     if not kd_files:
-        raise ValueError(f"Manba ichida 'key_datas' fayli topilmadi: {source_path}")
+        raise ValueError(f"'key_datas' file not found in source: {source_path}")
     return kd_files[0].parent
 
 
@@ -81,12 +81,12 @@ def unlock_and_restore_tdata(
     source_path = Path(source)
     target_path = Path(target_tdata)
     if not source_path.exists():
-        raise FileNotFoundError(f"Manba topilmadi: {source_path}")
+        raise FileNotFoundError(f"Source not found: {source_path}")
 
     print("=" * 65)
     print("🔄 Telegram TData Restorer & In-Place Passcode Unlocker")
-    print(f"📂 Manba  : {source_path}")
-    print(f"🎯 Manzil : {target_path}")
+    print(f"📂 Source : {source_path}")
+    print(f"🎯 Target : {target_path}")
     print("=" * 65)
 
     temp_root = Path(tempfile.mkdtemp(prefix="tlgr_restore_"))
@@ -103,7 +103,7 @@ def unlock_and_restore_tdata(
 
         if local_key_path and Path(local_key_path).exists():
             local_key = Path(local_key_path).read_bytes()[:256]
-            print(f"🔑 LocalKey fayldan yuklandi ({len(local_key)} bayt)")
+            print(f"🔑 LocalKey loaded from file ({len(local_key)} bytes)")
         else:
             # First test if already unlocked (empty passcode '') when passcode not explicitly given
             if passcode is None:
@@ -119,7 +119,7 @@ def unlock_and_restore_tdata(
                 if ok_empty and lk_empty is not None:
                     local_key = lk_empty[:256]
                     was_locked = False
-                    print("✅ Backupda lokal PIN/parol yo'q (ochiq holatda).")
+                    print("✅ Backup has no local PIN/passcode (unencrypted state).")
 
             if local_key is None and passcode is not None:
                 ok_pwd, lk_pwd = verify_kd2_candidate(
@@ -132,12 +132,12 @@ def unlock_and_restore_tdata(
                     kdf_id=kd2_info.kdf_id,
                 )
                 if not ok_pwd or lk_pwd is None:
-                    raise ValueError(f"Kiritilgan lokal parol noto'g'ri: '{passcode}'")
+                    raise ValueError(f"Invalid local passcode: '{passcode}'")
                 local_key = lk_pwd[:256]
-                print(f"🔓 Lokal parol ('{passcode}') tasdiqlandi! LocalKey ochildi.")
+                print(f"🔓 Local passcode ('{passcode}') verified! LocalKey unlocked.")
 
             if local_key is None and auto_crack_pin4:
-                print("⚡ Backupda lokal parol bor! Avtomatik 4-xonali PIN qidirish boshlandi...")
+                print("⚡ Backup is passcode-protected! Starting automatic 4-digit PIN brute-force...")
                 cracker = KD2Cracker(kd2_info)
                 pins = [f"{i:04d}" for i in range(10000)]
                 found_pwd, lk_cracked = cracker.crack(pins, save_artifacts=False)
@@ -145,12 +145,12 @@ def unlock_and_restore_tdata(
                     local_key = lk_cracked[:256]
                     passcode = found_pwd
                 else:
-                    raise ValueError("4-xonali PIN-kodlar ichidan parol topilmadi!")
+                    raise ValueError("No matching passcode found in 4-digit PIN range!")
 
             if local_key is None:
                 raise ValueError(
-                    "Ushbu backup lokal PIN/parol bilan himoyalangan! "
-                    "--passcode kiritishingiz yoki --auto-crack rejimini yoqishingiz kerak."
+                    "This backup is protected with a local PIN/passcode! "
+                    "Please specify --passcode or enable --auto-crack mode."
                 )
 
         # 2. Verify all account session files in acc_dir and map them to account indexes (0..15)
@@ -182,7 +182,7 @@ def unlock_and_restore_tdata(
                     removed_orphans.append(folder_part)
 
         if not valid_accounts:
-            raise ValueError("Arxiv ichida ushbu LocalKey ga tegishli yaroqli sessiya topilmadi!")
+            raise ValueError("No valid session matching this LocalKey found in archive!")
 
         valid_indexes.sort()
 
@@ -195,19 +195,19 @@ def unlock_and_restore_tdata(
         )
         kd_file.write_bytes(unlocked_kd_bytes)
         if was_locked:
-            print("🛡️  key_datas fayli parolsiz (unlocked) holatga o'tkazildi (barcha kesh va DC kalitlari saqlandi)!")
+            print("🛡️  key_datas file rewritten to passcode-free (unlocked) format (all cache and DC keys preserved)!")
 
         if removed_orphans:
-            print(f"🧹 Eskirgan/begona qoldiq sessiya fayllari tozalandi: {removed_orphans}")
+            print(f"🧹 Cleaned up orphaned/mismatched session files: {removed_orphans}")
 
         # 4. Print restored account details
-        print(f"\n📋 Tiklanayotgan akkauntlar ({len(valid_accounts)} ta):")
+        print(f"\n📋 Restoring accounts ({len(valid_accounts)}):")
         for folder_part, s_info in valid_accounts.items():
             prof_str = ""
             if s_info.profile:
                 p = s_info.profile
-                uname = f"@{p.username}" if p.username else "yo'q"
-                ph = f"+{p.phone}" if p.phone else "yo'q"
+                uname = f"@{p.username}" if p.username else "none"
+                ph = f"+{p.phone}" if p.phone else "none"
                 prof_str = f" | {p.full_name} ({uname}, {ph})"
             print(
                 f"   ✅ [{folder_part}] User ID: {s_info.user_id}{prof_str} | "
@@ -223,7 +223,7 @@ def unlock_and_restore_tdata(
             backup_dir = target_path.parent / f"tdata_pre_restore_backup_{ts}"
             shutil.copytree(target_path, backup_dir, dirs_exist_ok=True)
             backup_created = backup_dir
-            print(f"\n💾 Mavjud tdata zaxiralandi: {backup_dir}")
+            print(f"\n💾 Backed up existing target tdata to: {backup_dir}")
 
         # 6. Copy unlocked tdata files to target_path
         target_path.mkdir(parents=True, exist_ok=True)
@@ -252,7 +252,7 @@ def unlock_and_restore_tdata(
                 shutil.copy2(item, target_path / item.name)
                 copied_files += 1
 
-        print(f"\n🎉 MUVAFFAQIYATLI TIKLANDI! Jami {copied_files} ta fayl -> {target_path}")
+        print(f"\n🎉 SUCCESSFULLY RESTORED! Total {copied_files} file(s) -> {target_path}")
         print("=" * 65 + "\n")
 
         return {
@@ -282,12 +282,12 @@ def unlock_and_restore_tdata(
 
 def main():
     parser = argparse.ArgumentParser(description="Telegram TData Restorer & In-Place Passcode Unlocker")
-    parser.add_argument("--source", "-s", required=True, help="Backup ZIP/XZ arxivi yoki tdata papkasi yo'li")
-    parser.add_argument("--target", "-t", required=False, help="Tiklanadigan tdata papkasi yo'li (bo'sh qoldirilsa, tizimdan qidiriladi)")
-    parser.add_argument("--passcode", "-p", type=str, default=None, help="Lokal PIN/parol (agar ma'lum bo'lsa)")
-    parser.add_argument("--key", "-k", type=str, default=None, help="Oldindan topilgan found_local_key.bin fayli")
-    parser.add_argument("--auto-crack", action="store_true", help="Agar parol bo'lsa, 4-xonali PIN-kodni avtomatik topib ochish")
-    parser.add_argument("--no-backup", action="store_true", help="Mavjud tdata'dan oldindan zaxira nusxa olmaslik")
+    parser.add_argument("--source", "-s", required=True, help="Path to backup ZIP/XZ archive or tdata directory")
+    parser.add_argument("--target", "-t", required=False, help="Path to destination tdata directory (searched automatically if omitted)")
+    parser.add_argument("--passcode", "-p", type=str, default=None, help="Local PIN/passcode (if known)")
+    parser.add_argument("--key", "-k", type=str, default=None, help="Pre-recovered found_local_key.bin file path")
+    parser.add_argument("--auto-crack", action="store_true", help="Automatically brute-force 4-digit PIN if backup is passcode-protected")
+    parser.add_argument("--no-backup", action="store_true", help="Do not backup existing destination tdata before overwriting")
 
     args = parser.parse_args()
 
@@ -295,10 +295,10 @@ def main():
     if not target:
         candidates = find_all_tdata()
         if not candidates:
-            print("❌ Tizimda Telegram Desktop tdata papkasi topilmadi! --target orqali yo'lni ko'rsating.")
+            print("❌ No Telegram Desktop tdata directory found on system! Specify path with --target.")
             sys.exit(1)
         target = str(candidates[0])
-        print(f"ℹ️ Avtomatik tanlangan tdata: {target}")
+        print(f"ℹ️ Automatically selected tdata: {target}")
 
     try:
         unlock_and_restore_tdata(
@@ -310,7 +310,7 @@ def main():
             create_backup=not args.no_backup,
         )
     except Exception as e:
-        print(f"❌ Xatolik yuz berdi: {e}")
+        print(f"❌ Error occurred: {e}")
         sys.exit(1)
 
 

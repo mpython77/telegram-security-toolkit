@@ -48,7 +48,7 @@ class TestE2EPipeline(unittest.TestCase):
     def test_cracker_save_artifacts_false(self):
         """Regression test: ensures KD2Cracker.crack(..., save_artifacts=False) does not raise TypeError."""
         if not BACKUP_1.exists():
-            self.skipTest(f"{BACKUP_1.name} topilmadi")
+            self.skipTest(f"{BACKUP_1.name} not found")
 
         cracker = KD2Cracker.from_source(BACKUP_1)
         no_art_dir = self.test_dir / "no_artifacts"
@@ -59,7 +59,7 @@ class TestE2EPipeline(unittest.TestCase):
 
     def test_full_e2e_recovery_and_native_tdata_roundtrip(self):
         if not BACKUP_1.exists():
-            self.skipTest(f"{BACKUP_1.name} topilmadi")
+            self.skipTest(f"{BACKUP_1.name} not found")
 
         # 1. Crack known passcode in targeted range (1108 - 1114)
         cracker = KD2Cracker.from_source(BACKUP_1)
@@ -140,7 +140,7 @@ class TestE2EPipeline(unittest.TestCase):
         verifying both extract_all=True and OpenTele TDesktop multi-account loading!
         """
         if not (BACKUP_1.exists() and BACKUP_2.exists()):
-            self.skipTest("Test backuplari topilmadi")
+            self.skipTest("Test backups not found")
 
         s1 = extract_session_from_backup(BACKUP_1, passcode="1111", output_session_path=self.test_dir / "acc1.session")
         s2 = extract_session_from_backup(BACKUP_2, passcode="9562", output_session_path=self.test_dir / "acc2.session")
@@ -174,7 +174,7 @@ class TestE2EPipeline(unittest.TestCase):
     def test_forensic_analyzer_offline_audit(self):
         """Tests offline forensic analyzer on encrypted ZIP, unencrypted tdata, and .session."""
         if not BACKUP_1.exists():
-            self.skipTest(f"{BACKUP_1.name} topilmadi")
+            self.skipTest(f"{BACKUP_1.name} not found")
 
         json_path = self.test_dir / "audit_backup1.json"
         rep = analyze_source(BACKUP_1, passcode="1111", output_json=json_path, quiet=True)

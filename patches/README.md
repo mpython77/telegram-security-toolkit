@@ -1,40 +1,41 @@
-# Python 3.13 / 3.14+ va Telegram v7.x+ OpenTele Moslashuvchanlik Qo'llanmasi
+# Python 3.13 / 3.14+ and Telegram v7.x+ OpenTele Compatibility Guide
 
-## 1. Muammolarning tub mohiyati (Root Cause)
+## 1. Root Cause Analysis
 
-### Muammo #1: Python 3.13 / 3.14+ klass atributlari (`opentele/utils.py`)
-Python 3.13 versiyasidan boshlab (va Python 3.14 da) interpretator klasslarni dinamik yaratish tizimini yangiladi. Natijada har bir Python klassining `__dict__` lug'atiga yangi ichki atributlar qo'shildi:
-- `__firstlineno__` (klass qaysi satrda boshlanganini bildiruvchi `int`)
-- `__static_attributes__` (statik atributlar nomi `tuple`)
+### Issue #1: Python 3.13 / 3.14+ Internal Class Attributes (`opentele/utils.py`)
+Starting with Python 3.13 (and continuing in Python 3.14+), the interpreter introduced internal class attributes into `__dict__` during dynamic class evaluation:
+- `__firstlineno__` (integer indicating the starting line number of the class definition)
+- `__static_attributes__` (tuple of static attribute names)
 
-`opentele` kutubxonasida klasslarni kengaytirish uchun `@extend_class` dekoratori ishlatiladi (`opentele/utils.py`):
+The `opentele` package uses a custom `@extend_class` decorator to mutate base classes (`opentele/utils.py`):
 ```python
 newAttributes = dict(decorated_cls.__dict__)
 crossDelete = ["__abstractmethods__", "__module__", "_abc_impl", "__doc__"]
 ```
-OpenTele faqatgina shu 4 ta atributni tozalaydi. Yangi `__firstlineno__` va `__static_attributes__` esa lug'atda qolib ketadi va `raise BaseException("err")` xatosi bilan to'xtab qoladi.
+Because `opentele` only stripped those four legacy attributes, the presence of `__firstlineno__` and `__static_attributes__` caused attribute ID collisions, throwing `raise BaseException("err")` at runtime and preventing imports.
 
-### Muammo #2: Zamonaviy Telegram Desktop v4.x–v7.x+ `maps` formati (`opentele/td/account.py`)
-Telegram Desktop 4.0 dan 7.x gacha bo'lgan versiyalarida `<account_folder>/maps` fayliga yangi `lskType` bloklari (`lskCustomEmojiKeys = 23`, `lskSearchSuggestions = 24`, `lskWebviewTokens = 25` va boshqalar) qo'shildi.
-`opentele/td/account.py` ichidagi `MapData.read()` funksiyasi yangilanmagani sababli, `keyType == 23` ni ko'rganda `TDataReadMapDataFailed("Unknown key type in encrypted map: 23")` xatosini tashlaydi va zamonaviy `tdata` papkalarini o'qiy olmaydi.
+### Issue #2: Modern Telegram Desktop v4.x–v7.x+ `maps` Format (`opentele/td/account.py`)
+In Telegram Desktop versions 4.0 through 7.x+, several new `lskType` block structures were added to `<account_folder>/maps` (`lskCustomEmojiKeys = 23`, `lskSearchSuggestions = 24`, `lskWebviewTokens = 25`, etc.).
+Because `opentele/td/account.py` had not been maintained, encountering `keyType == 23` raised `TDataReadMapDataFailed("Unknown key type in encrypted map: 23")`, aborting initialization and failing to load modern `tdata` accounts.
 
-### Muammo #3: Ko'p Akkauntli (`Multi-Account`) `tdata` da `RecursionError` (`opentele/td/account.py`)
-`TDesktop` obyekti ichida 2 va undan ortiq akkaunt (`D877F783D5D3EF8Cs`, `A7FDF864FBC10B77s`, ...) yuklanganda, `Account.__init__` ichidagi `self.api = api.copy()` chaqiruvi `Account.api` va `TDesktop.api` setterlari o'rtasida cheksiz sikl (`RecursionError: maximum recursion depth exceeded`) keltirib chiqaradi.
+### Issue #3: Multi-Account Infinite Recursion in `Account.api` (`opentele/td/account.py`)
+When loading two or more accounts (`D877F783D5D3EF8Cs`, `A7FDF864FBC10B77s`, ...) within a single `TDesktop` instance, `Account.__init__` executes `self.api = api.copy()`. The bidirectional setter synchronization between `Account.api` and `TDesktop.api` triggered an infinite recursive loop:
+`RecursionError: maximum recursion depth exceeded`.
 
 ---
 
-## 2. Yechim
+## 2. The Solution
 
-`patch_opentele.py` vositasi uchala muammoni ham avtomatik ravishda 1 soniyada hal qiladi:
-1. `opentele/utils.py` ichidagi `crossDelete` ro'yxatiga `"__firstlineno__"` va `"__static_attributes__"` ni qo'shadi.
-2. `opentele/td/account.py` ichidagi `MapData.read` siklida yangi `lskType` identifikatorlari kelganda xato otish o'rniga `break` qilib, barcha asosiy ma'lumotlarni va 4 ta DC kalitlarini (`[1, 2, 4, 5]`) to'liq yuklashni ta'minlaydi.
-3. `opentele/td/account.py` ichidagi `Account.api` setterida obyektlarning xotira manzillarini emas, balki `api_id` qiymatini solishtirib, ko'p akkauntli `RecursionError` xatosini bartaraf etadi.
+The `patch_opentele.py` script automatically addresses all three issues:
+1. Appends `"__firstlineno__"` and `"__static_attributes__"` to `crossDelete` in `opentele/utils.py`.
+2. Patches `opentele/td/account.py` so encountering unrecognized future `lskType` entries exits the TLV loop cleanly without crashing, preserving all primary DC keys (`[1, 2, 4, 5]`) and profile data.
+3. Compares `api_id` values instead of object memory identity in the `Account.api` setter, eliminating the multi-account `RecursionError`.
 
-### Avtomatik o'rnatish (1 ta buyruq):
+### Applying the Patch (Single Command):
 ```bash
 python patches/patch_opentele.py
 ```
-yoki:
+or via the main orchestrator:
 ```bash
 python main.py --patch
 ```

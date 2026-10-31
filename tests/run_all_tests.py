@@ -25,8 +25,8 @@ def run_suite():
     suite = loader.discover(start_dir=str(CURRENT_DIR), pattern="test_*.py")
 
     print("=" * 65)
-    print("TELEGRAM SECURITY TOOLKIT - TO'LIQ TEST SUITE")
-    print(f"Python versiyasi: {sys.version.split()[0]} ({sys.platform})")
+    print("TELEGRAM SECURITY TOOLKIT - FULL AUTOMATED TEST SUITE")
+    print(f"Python Version: {sys.version.split()[0]} ({sys.platform})")
     print("=" * 65)
 
     runner = unittest.TextTestRunner(verbosity=2)
@@ -34,9 +34,9 @@ def run_suite():
 
     print("\n" + "=" * 65)
     if result.wasSuccessful():
-        print(f"🎉 BARCHA TESTLAR MUVAFFAQIYATLI O'TDI! ({result.testsRun} ta test)")
+        print(f"🎉 ALL TESTS PASSED SUCCESSFULLY! ({result.testsRun} tests)")
     else:
-        print(f"❌ XATOLIKLAR MAVJUD: {len(result.errors)} ta xato, {len(result.failures)} ta muvaffaqiyatsizlik.")
+        print(f"❌ FAILURES OCCURRED: {len(result.errors)} errors, {len(result.failures)} failures.")
     print("=" * 65)
     return result.wasSuccessful()
 

@@ -26,50 +26,50 @@ from core.session_manager import SessionManager
 def check_session_cli(session_path: str):
     sess_file = Path(session_path)
     if not sess_file.exists():
-        raise FileNotFoundError(f"Sessiya fayli topilmadi: {sess_file}")
+        raise FileNotFoundError(f"Session file not found: {sess_file}")
 
     print("=" * 60)
-    print("Telegram Sessiya Holatini Tekshirish")
-    print(f"Fayl: {sess_file.name}")
+    print("Telegram Session Health & Status Check")
+    print(f"File: {sess_file.name}")
     print("=" * 60)
 
     res = asyncio.run(SessionManager.verify_session(sess_file))
 
     if not res.get("authorized"):
-        print("\n❌ SEANSI FAOL EMAS (O'chgan yoki bekor qilingan):")
+        print("\n❌ SESSION IS NOT ACTIVE (Revoked or expired):")
         if res.get("error"):
-            print(f"   ⚠️ Sabab: {res['error']}")
+            print(f"   ⚠️ Reason: {res['error']}")
         else:
-            print("   ℹ️ Ushbu sessiya Telegram serverida faol emas yoki avtorizatsiyadan chiqarilgan.")
+            print("   ℹ️ This session is inactive on Telegram servers or has been terminated.")
         if res.get("user_id"):
-            print("\n📋 Oflayn saqlangan profil ma'lumotlari:")
+            print("\n📋 Cached offline profile metadata:")
             if res.get("first_name"):
-                print(f"   👤 Ism-familiya : {res.get('first_name')}")
+                print(f"   👤 Name         : {res.get('first_name')}")
             if res.get("username"):
-                print(f"   🏷️ Username      : @{res.get('username')}")
-            print(f"   🆔 Telegram ID   : {res.get('user_id')}")
+                print(f"   🏷️ Username     : @{res.get('username')}")
+            print(f"   🆔 Telegram ID  : {res.get('user_id')}")
             if res.get("phone"):
-                print(f"   📞 Telefon       : +{res.get('phone')}")
+                print(f"   📞 Phone        : +{res.get('phone')}")
             if res.get("dc_list"):
-                print(f"   🔑 DC kalitlari  : {res.get('dc_list')}")
+                print(f"   🔑 DC Keys      : {res.get('dc_list')}")
         print("=" * 60 + "\n")
         return False
 
-    print("\n✅ SEANSI TO'LIQ FAOL VA TIRIK!")
-    print(f"   👤 Ism-familiya : {res.get('first_name')} {res.get('last_name')}")
-    print(f"   🏷️ Username      : @{res.get('username') or 'yo\'q'}")
-    print(f"   🆔 Telegram ID   : {res.get('user_id')}")
-    print(f"   📞 Telefon       : +{res.get('phone')}")
+    print("\n✅ SESSION IS ACTIVE AND VALID!")
+    print(f"   👤 Name         : {res.get('first_name')} {res.get('last_name')}")
+    print(f"   🏷️ Username     : @{res.get('username') or 'none'}")
+    print(f"   🆔 Telegram ID  : {res.get('user_id')}")
+    print(f"   📞 Phone        : +{res.get('phone')}")
 
     devices = res.get("devices", [])
     if devices:
-        print(f"\n📱 Faol qurilmalar va sessiyalar soni: {len(devices)} ta")
+        print(f"\n📱 Active authorized devices and sessions: {len(devices)}")
         for idx, dev in enumerate(devices, 1):
             print(f"   {idx}. {dev}")
 
     dialogs = res.get("recent_dialogs", [])
     if dialogs:
-        print(f"\n💬 Oxirgi chatlar:")
+        print(f"\n💬 Recent dialogs:")
         for idx, d_name in enumerate(dialogs, 1):
             print(f"   {idx}. {d_name}")
     print("=" * 60 + "\n")
@@ -77,13 +77,13 @@ def check_session_cli(session_path: str):
 
 def main():
     parser = argparse.ArgumentParser(description="Check Telegram .session status and health")
-    parser.add_argument("--session", "-s", required=True, help="Tekshiriladigan .session fayli yo'li")
+    parser.add_argument("--session", "-s", required=True, help="Path to .session file to verify")
 
     args = parser.parse_args()
     try:
         check_session_cli(args.session)
     except Exception as e:
-        print(f"❌ Xatolik yuz berdi: {e}")
+        print(f"❌ Error occurred: {e}")
         sys.exit(1)
 
 

@@ -1,278 +1,280 @@
 # Telegram Desktop Security, Forensics & Recovery Toolkit
 
-**Telegram Desktop (`tdata`)** xavfsizligi, oflayn raqamli kriministika (*Digital Forensics*) va avtorizatsiya sessiyalarini tiklash uchun mo'ljallangan professional vositalar to'plami.
+A comprehensive, production-grade toolkit for **Telegram Desktop (`tdata`)** security auditing, offline digital forensics, passcode analysis, and multi-session authentication recovery.
 
 ---
 
-## 📌 Mundarija
-1. [Loyiha haqida va Asosiy Imkoniyatlar](#-loyiha-haqida-va-asosiy-imkoniyatlar)
-2. [Telegramning Lokal Shifrlash Arxitekturasi (KD2 va TDF$)](#-telegramning-lokal-shifrlash-arxitekturasi-kd2-va-tdf)
-3. [Nega Hashcat va GPU emas, balki CPU tanlandi?](#-nega-hashcat-va-gpu-emas-balki-cpu-tanlandi)
-4. [Tizim Talablari va O'rnatish](#-tizim-talablari-va-ornatish)
-5. [Bosqichma-bosqich Foydalanish Yo'riqnomasi](#-bosqichma-bosqich-foydalanish-yoriqnomasi)
-   - [1-qadam: TData Harvester (`--harvest`)](#1-qadam-tdata-harvester---harvest)
-   - [2-qadam: Oflayn Kriministik Tahlil va JSON Audit (`--analyze`)](#2-qadam-oflayn-kriministik-tahlil-va-json-audit---analyze)
-   - [3-qadam: KD2 / PBKDF2 Passcode Cracker (`--crack`)](#3-qadam-kd2--pbkdf2-passcode-cracker---crack)
-   - [4-qadam: Multi-DC va Multi-Account Session Extractor (`--extract`)](#4-qadam-multi-dc-va-multi-account-session-extractor---extract)
-   - [5-qadam: Pure-Python Session -> TData Converter (`--convert`)](#5-qadam-pure-python-session---tdata-converter---convert)
-   - [6-qadam: TData Restorer & In-Place Passcode Unlocker (`--restore`)](#6-qadam-tdata-restorer--in-place-passcode-unlocker---restore)
-   - [7-qadam: Sessiya Holatini Tekshirish (`--check`)](#7-qadam-sessiya-holatini-tekshirish---check)
-   - [8-qadam: Avtomatlashtirilgan Testlar To'plami (`--test`)](#8-qadam-avtomatlashtirilgan-testlar-toplami---test)
-6. [Python 3.13 / 3.14+ va Telegram v7.x+ OpenTele Patchi (`--patch`)](#-python-313--314-va-telegram-v7x-opentele-patchi---patch)
-7. [Bir nechta Akkauntni Ishlatish (Multi-Account va Telegram Portable)](#-bir-nechta-akkauntni-ishlatish-multi-account-va-telegram-portable)
-8. [Git va Xavfsizlik Qoidalari](#-git-va-xavfsizlik-qoidalari)
-9. [Loyiha Arxitekturasi](#-loyiha-arxitekturasi)
+## 📌 Table of Contents
+1. [Overview & Key Features](#-overview--key-features)
+2. [Telegram Local Encryption Architecture (KD2 & TDF$)](#-telegram-local-encryption-architecture-kd2--tdf)
+3. [Why CPU and Multiprocessing Instead of Hashcat & GPU?](#-why-cpu-and-multiprocessing-instead-of-hashcat--gpu)
+4. [System Requirements & Installation](#-system-requirements--installation)
+5. [Step-by-Step Usage Guide](#-step-by-step-usage-guide)
+   - [Step 1: Lightweight TData Harvester (`--harvest`)](#step-1-lightweight-tdata-harvester---harvest)
+   - [Step 2: Offline Forensic Analyzer & Integrity Audit (`--analyze`)](#step-2-offline-forensic-analyzer--integrity-audit---analyze)
+   - [Step 3: KD2 / PBKDF2 Multi-Core Passcode Cracker (`--crack`)](#step-3-kd2--pbkdf2-multi-core-passcode-cracker---crack)
+   - [Step 4: Multi-DC & Multi-Account Session Extractor (`--extract`)](#step-4-multi-dc--multi-account-session-extractor---extract)
+   - [Step 5: Pure-Python Session to TData Converter (`--convert`)](#step-5-pure-python-session-to-tdata-converter---convert)
+   - [Step 6: In-Place Passcode Unlocker & Restorer (`--restore`)](#step-6-in-place-passcode-unlocker--restorer---restore)
+   - [Step 7: Session Verification & Health Checker (`--check`)](#step-7-session-verification--health-checker---check)
+   - [Step 8: Automated Test Suite (`--test`)](#step-8-automated-test-suite---test)
+6. [Python 3.13 / 3.14+ and Telegram v7.x+ OpenTele Compatibility Patch (`--patch`)](#-python-313--314-and-telegram-v7x-opentele-compatibility-patch---patch)
+7. [Multi-Account Workflow & Telegram Portable Execution](#-multi-account-workflow--telegram-portable-execution)
+8. [Git & Operational Security Guidelines](#-git--operational-security-guidelines)
+9. [Architecture & Project Structure](#-architecture--project-structure)
 
 ---
 
-## 🚀 Loyiha haqida va Asosiy Imkoniyatlar
+## 🚀 Overview & Key Features
 
-Ushbu to'plam barcha jarayonlarni yagona markazlashgan interfeys (`main.py`) orqali bajaradi:
+This toolkit unifies the complete Telegram Desktop security lifecycle through a central command-line interface (`main.py`):
 
-* **📦 Yengil Harvester (`--harvest`):** Kompyuterdagi (AppData, Microsoft Store UWP, Portable, Linux Snap/Flatpak, macOS) Telegram o'rnatmalaridan gigabaytlab keraksiz media va keshni tashlab, faqat shifrlangan eng zaruriy sessiya fayllarini ixcham `.zip` arxivga yig'adi.
-* **🔬 100% Oflayn Kriministik Tahlil (`--analyze`):** Tarmoqqa umuman ulanmasdan har qanday `.zip`, `.tar.xz`, `tdata` papkasi yoki `.session` faylning SHA-256 xeshini, `TDF$` MD5 butunligini, KDF parametrlarini, oflayn foydalanuvchi profilini (`Ism`, `@username`, `+telefon`, `User ID`, `Bio`), har bir DC kalitining 64-bitli MTProto `auth_key_id` barmoq izini va `maps` ichidagi barcha `lskType` bloklarini tahlil qilib, JSON hisobot chiqaradi.
-* **🔓 Dual-KDF Multi-Core Cracker (`--crack`):** Telegramning yangi **KD2 (`Argon2id` + `AES-256-IGE`)** hamda standart/eski **`PBKDF2-HMAC-SHA512`** lokal parolini mavjud CPU oqimlari va bo'sh RAM hajmiga moslashgan holda parallel ravishda ochadi.
-* **🔑 Multi-DC va Multi-Account Session Extractor (`--extract`):** Shifrlangan `.s` va `maps` fayllaridan barcha Data Center (`DC 1, 2, 4, 5`) kalitlarini hamda oflayn profilni ajratib olib, bitta yoki barcha (`--all`) akkauntlar uchun tayyor Telethon SQLite `.session` yaratadi.
-* **🚀 100% Pure-Python `Session -> TData` Konverter (`--convert`):** Tashqi `PyQt5` yoki `opentele` kutubxonalarisiz, sof Python kriptografik seriyalash dvigateli yordamida bitta yoki bir nechta `.session` fayllarini parolsiz, toza `tdata` papkasiga (16 tagacha akkauntni bitta `tdata` ga birlashtirgan holda) aylantiradi.
-* **🔄 In-Place Passcode Unlocker & Restorer (`--restore`):** Backup arxivini (`.zip`, `.tar.xz`, `.tar.gz`) yoki `tdata` papkasini barcha 4 ta DC kalitlari (`[1, 2, 4, 5]`), `maps`, qoralamalar (`lskDraft`), stikerlar va kesh fayllarini **100% saqlagan holda** lokal PIN/parolni joyida olib tashlab, to'g'ridan-to'g'ri Telegram Desktop ichiga tiklaydi.
-* **🛡️ Xavfsiz Arxivlash (Zip-Slip Defense):** Noma'lum manbadan olingan `.zip` va `.tar.xz` arxivlarni ochishda `../../` ko'rinishidagi Path Traversal va zararli symlink hujumlarini avtomatik bloklaydi.
-
----
-
-## 🔐 Telegramning Lokal Shifrlash Arxitekturasi (KD2 va TDF$)
-
-Telegram Desktop o'zining barcha lokal ma'lumotlarini `tdata` papkasida maxsus shifrlangan konteynerlarda saqlaydi.
-
-### 1. Fayl formati (`TDF$`):
-Barcha shifrlangan fayllar (`key_datas`, `D877F783D5D3EF8Cs`, `maps`, `configs`, `settings`) quyidagi binar tuzilishga ega:
-* **0..4 bayt:** Magic header `TDF$`
-* **4..8 bayt:** Telegram versiyasi (Little-Endian `uint32`, masalan `7003003` -> `v7.3.3`)
-* **8..N-16 bayt:** Shifrlangan asosiy yuklama (Payload)
-* **Oxirgi 16 bayt:** `MD5(payload + len(payload) + version + "TDF$")` nazorat summasi
-
-### 2. KD2 Tuzilmasi (`key_datas`):
-Lokal parol (Passcode) o'rnatilganda Telegram `KD2\0` (Key Derivation v2) algoritmini ishga tushiradi:
-* **Algoritm:** `Argon2id` (v13, `kdf_id = 1`)
-* **Xotira sarfi (`memory_cost`):** `65536 KiB` (har bir urinish uchun 64 MB operativ xotira)
-* **Iteratsiyalar soni (`time_cost`):** `8` qadam
-* **Oqimlar soni (`parallelism`):** `1` oqim
-* **Salt:** `32` bayt
-* **Shifrlangan blok (`enc_blob`):** `288` bayt (`16` bayt `key128` + `272` bayt shifrlangan ma'lumot)
-
-Paroldan 256 baytli `wrap_key` hosil qilinadi. Ushbu `wrap_key` va `key128` orqali Telegramning `prepareAES_oldmtp` funksiyasi yordamida 32 baytli AES-256 kaliti va 32 baytli IV yasaladi. AES-256-IGE orqali shifrdan yechilgan blokning SHA-1 heshining dastlabki 16 bayti `key128` ga teng kelsa, parol to'g'ri deb topiladi va ichidan 256 baytli master **LocalKey** olinadi. Parol o'rnatilmagan (`passcode = ""`) holatda esa `kdf_id = 0` (`PBKDF2-HMAC-SHA512`, 1 iteratsiya) ishlatiladi.
+* **📦 Lightweight TData Harvester (`--harvest`):** Scans the local system across standard installations (Roaming AppData, Microsoft Store UWP, Portable folders, Linux Snap/Flatpak, macOS Application Support), ignores gigabytes of disposable media and cache directories, and archives critical authentication files into a compact ZIP container.
+* **🔬 100% Offline Forensic Analyzer (`--analyze`):** Performs zero-network forensic verification on `.zip`, `.tar.xz`, raw `tdata` directories, or `.session` files. Audits container SHA-256 hashes, `TDF$` MD5 checksums, KDF parameters, offline profiles (`Full Name`, `@username`, `+Phone`, `User ID`, `Bio`), 64-bit MTProto `auth_key_id` fingerprints across all Data Centers, and complete TLV block inventory from `maps`. Exports structured JSON reports.
+* **🔓 Dual-KDF Multi-Core Cracker (`--crack`):** High-throughput brute-force engine for modern **KD2 (`Argon2id` + `AES-256-IGE`)** and legacy/standard **`PBKDF2-HMAC-SHA512`** local passcode containers. Dynamically scales worker processes based on hardware core topology and available physical RAM while keeping system UI responsiveness smooth.
+* **🔑 Multi-DC & Multi-Account Session Extractor (`--extract`):** Decrypts `.s` and `maps` files to recover master `LocalKey` and all Data Center keys (`DC 1, 2, 4, 5`). Generates authentic Telethon SQLite `.session` files for single or all (`--all`) active accounts simultaneously.
+* **🚀 Pure-Python `Session -> TData` Converter (`--convert`):** Eliminates fragile dependencies on external C++/Qt libraries (`PyQt5` or unmaintained `opentele`). Generates valid, passcode-free `tdata` folders directly in pure Python (`struct.pack` and AES-256-IGE), supporting up to 16 accounts merged into a single multi-account `tdata`.
+* **🔄 In-Place Passcode Unlocker & Restorer (`--restore`):** Restores any backup archive (`.zip`, `.tar.xz`, `.tar.gz`) or `tdata` folder directly into a target Telegram Desktop directory, rewriting `key_datas` in-place to remove the local passcode while retaining 100% of authentic DC keys (`[1, 2, 4, 5]`), drafts (`lskDraft`), stickers, and local database cache.
+* **🛡️ Hardened Archive Security (Zip-Slip Defense):** Implements path traversal validation and strict symlink filtering when decompressing untrusted backup archives, rejecting relative parent directory traversals (`../../`).
 
 ---
 
-## ⚡ Nega Hashcat va GPU emas, balki CPU tanlandi?
+## 🔐 Telegram Local Encryption Architecture (KD2 & TDF$)
 
-1. **Hashcatda KD2 moduli yo'q:** Hashcat faqat Telegramning eski PBKDF2 shifrlashini qo'llab-quvvatlaydi (`-m 22600` va `-m 24500`). Zamonaviy `Argon2id + MTProto AES-IGE` bo'lgan KD2 algoritmi Hashcatda mavjud emas.
-2. **Argon2id xotiraga bog'liq (Memory-Hard):**
-   * Argon2id har bitta urinish uchun GPU yadrolarini emas, balki yuqori tezlikdagi operativ xotira (RAM va L3 Kesh) o'tkazuvchanligini talab qiladi.
-   * Zamonaviy ko'p yadroli protsessorlar (masalan: 16 oqimli CPU + DDR5 RAM) har soniyada ~25–35 ta to'liq 64 MB lik Argon2id hisoblashini amalga oshiradi.
-   * Shu sababli, 4-xonali barcha 10 000 ta PIN kombinatsiyasini qidirish CPUda o'rtacha **5–8 daqiqa** vaqt oladi.
+Telegram Desktop isolates and encrypts its local state within the `tdata` directory using proprietary binary formats.
+
+### 1. The Container Format (`TDF$`):
+Every critical file (`key_datas`, `D877F783D5D3EF8Cs`, companion `maps`, `configs`, `settings`) follows the `TDF$` binary structure:
+* **0..4 bytes:** Magic header `TDF$` (`0x54 0x44 0x46 0x24`)
+* **4..8 bytes:** Telegram client version (Little-Endian `uint32`, e.g., `7003003` for `v7.3.3`)
+* **8..N-16 bytes:** Encrypted binary payload
+* **Last 16 bytes:** Integrity check: `MD5(payload + len(payload) + version + "TDF$")`
+
+### 2. KD2 Key Derivation (`key_datas`):
+When a local passcode is configured, Telegram Desktop enforces the `KD2\0` (Key Derivation v2) specification:
+* **KDF Algorithm:** `Argon2id` (v13, `kdf_id = 1`)
+* **Memory Cost (`memory_cost`):** `65536 KiB` (64 MB of physical RAM allocated per attempt)
+* **Time Cost (`time_cost`):** `8` iterations
+* **Parallelism (`threads`):** `1` thread
+* **Salt Length:** `32` bytes
+* **Encrypted Key Blob:** `288` bytes (`16` bytes `key128` + `272` bytes encrypted payload)
+
+From the passcode candidate and salt, a 256-byte `wrap_key` is derived via Argon2id. Using Telegram's internal `prepareAES_oldmtp` derivation, a 32-byte AES key and 32-byte IV are computed. The ciphertext is decrypted via AES-256-IGE; if the first 16 bytes of `SHA-1(decrypted)` match `key128`, the candidate is confirmed and the 256-byte master **LocalKey** is extracted.
+
+When no passcode is set (`passcode = ""`), Telegram uses `kdf_id = 0` (`PBKDF2-HMAC-SHA512` with 1 iteration) to wrap the master `LocalKey`.
 
 ---
 
-## 📦 Tizim Talablari va O'rnatish
+## ⚡ Why CPU and Multiprocessing Instead of Hashcat & GPU?
 
-### 1. Talablar:
-* **Python:** `3.10`, `3.11`, `3.12`, `3.13` yoki `3.14+`
-* **OS:** Windows 10/11, Linux yoki macOS
+1. **Absence of KD2 in Existing Hashcat Modules:** Hashcat supports legacy Telegram PBKDF2 formats (`-m 22600` and `-m 24500`), but has no support for modern `Argon2id + AES-256-IGE` (KD2).
+2. **Argon2id Memory-Hardness:**
+   * Argon2id is intentionally designed to be memory-hard. Each hashing attempt requires 64 MB of high-speed memory access, rendering GPU SIMD clusters memory-bound.
+   * Modern multi-core CPUs paired with high-bandwidth memory (DDR4/DDR5) compute ~25–35 full 64 MB Argon2id operations per second across multi-threading cores.
+   * A 4-digit numeric PIN space (`10,000` combinations) completes in **5–8 minutes** on standard multi-core hardware.
 
-### 2. O'rnatish:
-Loyiha papkasiga o'ting va zarur kutubxonalarni o'rnating:
+---
+
+## 📦 System Requirements & Installation
+
+### 1. Requirements:
+* **Python:** `3.10`, `3.11`, `3.12`, `3.13`, or `3.14+`
+* **Operating System:** Windows 10/11, Linux, or macOS
+
+### 2. Installation:
+Clone the repository and install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
-Yoki standart Python paketi sifatida (`pyproject.toml` orqali) o'rnating:
+Or install as a local package via `pyproject.toml`:
 ```bash
 pip install -e .
 ```
 
-Asosiy kutubxonalar:
-* `telethon` — Telegram MTProto API mijozi
-* `tgcrypto` — C tilida yozilgan tezkor AES-256-IGE shifrlash kutubxonasi
-* `argon2-cffi` — C darajasidagi rasmiy Argon2id implementatsiyasi
-* `pycryptodome` — Kriptografik primitivlar
-* `opentele` *(ixtiyoriy)* — Qo'shimcha moslashuvchanlik uchun (asosiy `session -> tdata` dvigateli Pure-Python'da yozilgan bo'lib, `opentele` va `PyQt5` siz ham to'liq ishlaydi)
+Core libraries:
+* `telethon` — Telegram MTProto API client
+* `tgcrypto` — High-performance C-accelerated AES-256-IGE encryption/decryption
+* `argon2-cffi` — C implementation of Argon2id
+* `pycryptodome` — Cryptographic calculation primitives
+* `opentele` *(optional fallback)* — Legacy Qt-based conversion module (not required by the native Pure-Python engine)
 
 ---
 
-## 🛠️ Bosqichma-bosqich Foydalanish Yo'riqnomasi
+## 🛠️ Step-by-Step Usage Guide
 
-Barcha amallarni yagona interaktiv menyudan boshqarishingiz mumkin:
+Launch the unified interactive menu:
 ```bash
 python main.py
 ```
-Yoki buyruqlar satri (CLI) orqali to'g'ridan-to'g'ri chaqirishingiz mumkin:
+Or invoke specific command-line operations directly:
 
 ---
 
-### 1-qadam: TData Harvester (`--harvest`)
-Kompyuterdagi barcha Telegram Desktop o'rnatmalarini topadi va keraksiz keshni tashlab, faqat sessiya uchun muhim fayllardan ixcham ZIP arxiv yaratadi:
+### Step 1: Lightweight TData Harvester (`--harvest`)
+Locates active Telegram Desktop storage locations, skips media/cache files, and outputs a clean ZIP archive:
 ```bash
 python main.py --harvest -o .
 ```
-Maxsus papkani ko'rsatish uchun:
+Specify a custom directory:
 ```bash
 python main.py --harvest -p "C:\Custom\Telegram\tdata" -o .
 ```
 
 ---
 
-### 2-qadam: Oflayn Kriministik Tahlil va JSON Audit (`--analyze`)
-Tarmoqqa umuman ulanmasdan (100% oflayn) har qanday `.zip`, `.tar.xz`, `tdata` papkasi yoki `.session` faylning butunligini, KDF parametrlarini, oflayn foydalanuvchi profilini, DC kalitlarining 64-bitli `auth_key_id` barmoq izlarini va `maps` ichidagi `lskType` bloklarini tahlil qiladi:
+### Step 2: Offline Forensic Analyzer & Integrity Audit (`--analyze`)
+Inspects any `.zip`, `.tar.xz`, `tdata` folder, or `.session` file without connecting to Telegram servers:
 ```bash
-# Parolsiz yoki qulflangan arxivni tekshirish:
+# Analyze unencrypted or locked archive:
 python main.py --analyze -s "TG_Backup_Windows_....zip"
 
-# Parol ma'lum bo'lsa, ichki profil va kalitlarni ham ochib JSON hisobotga saqlash:
+# Analyze with known passcode and export JSON report:
 python main.py --analyze -s "TG_Backup_Windows_....zip" -p 1111 -j audit_report.json
 ```
 
 ---
 
-### 3-qadam: KD2 / PBKDF2 Passcode Cracker (`--crack`)
-Arxivdagi (`.zip`, `.tar.xz`) yoki `tdata` papkasidagi `key_datas` faylini tekshirib, lokal parolni ko'p yadroli CPUda parallel qidiradi:
+### Step 3: KD2 / PBKDF2 Multi-Core Passcode Cracker (`--crack`)
+Brute-forces the master `LocalKey` across all available CPU threads:
 ```bash
-# 4-xonali PIN-kodlar (0000-9999):
+# 4-digit numeric PINs (0000-9999):
 python main.py --crack -s "TG_Backup_Windows_....zip" --mode pin4
 
-# 6-xonali PIN-kodlar (000000-999999):
+# 6-digit numeric PINs (000000-999999):
 python main.py --crack -s "TG_Backup_Windows_....zip" --mode pin6
 
-# Muayyan sonlar oralig'i:
+# Custom numerical range:
 python main.py --crack -s "TG_Backup_Windows_....zip" --mode range --start 1000 --end 2000
 
-# Wordlist (parollar lug'ati):
+# Dictionary wordlist:
 python main.py --crack -s "TG_Backup_Windows_....zip" --mode wordlist -w passwords.txt
 ```
-Topilgan parol va 256-baytlik kalit `found_passcode.txt` hamda `found_local_key.bin` fayllariga saqlanadi.
+Recovered passcodes and keys are saved to `found_passcode.txt` and `found_local_key.bin`.
 
 ---
 
-### 4-qadam: Multi-DC va Multi-Account Session Extractor (`--extract`)
-Arxiv yoki `tdata` papkasidan barcha Data Center (`DC 1, 2, 4, 5`) kalitlarini va oflayn profilni ajratib olib, Telethon SQLite `.session` fayliga eksport qiladi:
+### Step 4: Multi-DC & Multi-Account Session Extractor (`--extract`)
+Extracts MTProto authentication keys and profile details into Telethon `.session` SQLite files:
 ```bash
-# Asosiy akkauntni ajratib olish:
+# Extract the primary account:
 python main.py --extract -s "TG_Backup_Windows_....zip" -p 1111 -o account.session
 
-# Backup ichidagi BARCHA faol akkauntlarni alohida .session fayllariga ajratish:
+# Extract ALL active accounts into individual .session files:
 python main.py --extract -s "TG_Backup_Windows_....zip" -p 1111 --all -o ./sessions/
 
-# Muayyan indeksdagi akkauntni tanlash (masalan, 1-indeks):
+# Extract a specific account index (e.g., account index 1):
 python main.py --extract -s "TG_Backup_Windows_....zip" -p 1111 --account-index 1
 ```
 
 ---
 
-### 5-qadam: Pure-Python Session -> TData Converter (`--convert`)
-Bitta yoki bir nechta `.session` faylini **100% Pure-Python dvigateli** yordamida parolsiz, toza `tdata` papkasiga aylantiradi:
+### Step 5: Pure-Python Session to TData Converter (`--convert`)
+Converts `.session` file(s) into clean, passcode-free `tdata` using the native Pure-Python serialization engine:
 ```bash
-# Bitta .session faylidan toza tdata yaratish:
+# Convert a single session:
 python main.py --convert -s account.session -o "C:\Telegram_Clean\tdata"
 
-# Bir nechta .session fayllarini bitta Multi-Account tdata papkasiga birlashtirish:
+# Merge multiple sessions into a single Multi-Account tdata:
 python main.py --convert -s acc1.session acc2.session -o "C:\Telegram_Multi\tdata"
 ```
 
 ---
 
-### 6-qadam: TData Restorer & In-Place Passcode Unlocker (`--restore`)
-Har qanday backup arxivini (`.zip`, `.tar.xz`, `.tar.gz`) yoki `tdata` papkasini **barcha 4 ta DC kalitlari (`[1, 2, 4, 5]`), `maps` (oflayn profil), qoralamalar (`lskDraft`), stikerlar va lokal kesh fayllarini 100% saqlagan holda** lokal PIN/parolni joyida olib tashlab, Telegram Desktop papkasiga tiklaydi:
+### Step 6: In-Place Passcode Unlocker & Restorer (`--restore`)
+Restores an encrypted archive or directory to a target `tdata` folder, unlocking the local passcode in-place while preserving all 4 DC keys (`[1, 2, 4, 5]`), maps, drafts, and local cache:
 ```bash
-# Parol ma'lum bo'lsa:
+# Restore with known passcode:
 python main.py --restore -s "TG_Backup_Windows_....zip" -t "C:\Telegram_Portable\tdata" -p 1111
 
-# Parol noma'lum bo'lsa (4-xonali PIN-kodni avtomatik topib, parolsiz tiklash):
+# Restore with automated 4-digit PIN discovery:
 python main.py --restore -s "TG_Backup_Windows_....zip" -t "C:\Telegram_Portable\tdata" --auto-crack
 ```
 
 ---
 
-### 7-qadam: Sessiya Holatini Tekshirish (`--check`)
-Sessiyaning serverda faolligini rasmiy Telegram Desktop qurilma sarlavhalari orqali tekshiradi, profil ma'lumotlari, ulangan qurilmalar va oxirgi dialoglarni ko'rsatadi (sessiya serverdan o'chirilgan bo'lsa ham, fayl ichidagi oflayn profilni ekranga chiqaradi):
+### Step 7: Session Verification & Health Checker (`--check`)
+Verifies session connectivity against Telegram servers using official Telegram Desktop client identification headers:
 ```bash
 python main.py --check -s account.session
 ```
 
 ---
 
-### 8-qadam: Avtomatlashtirilgan Testlar To'plami (`--test`)
-Kriptografik primitivlar, xotira hisoblashlari, Zip-Slip himoyasi, `.tar.xz` universal o'qish, ko'p blokli `maps` TLV parslovi, Pure-Python multi-account `tdata` konvertatsiyasi va E2E tiklash zanjiridan iborat **22 ta avtomatlashtirilgan testni** ishga tushiradi:
+### Step 8: Automated Test Suite (`--test`)
+Executes the full suite of **22 automated unit and end-to-end regression tests**:
 ```bash
 python main.py --test
 ```
 
 ---
 
-## 🩹 Python 3.13 / 3.14+ va Telegram v7.x+ OpenTele Patchi (`--patch`)
+## 🩹 Python 3.13 / 3.14+ and Telegram v7.x+ OpenTele Compatibility Patch (`--patch`)
 
-Asosiy `SessionManager.session_to_tdata` dvigateli Pure-Python'da ishlaydi va `opentele` ga muhtoj emas. Biroq, agar tizimingizda `opentele` kutubxonasidan qo'shimcha foydalanmoqchi bo'lsangiz, undagi 3 ta arxitekturaviy xatoni avtomatik tuzatuvchi patch mavjud:
-1. **Python 3.13 / 3.14+ `__firstlineno__` va `__static_attributes__` xatosi** (`opentele/utils.py`);
-2. **Telegram Desktop v4.x–v7.x+ yangi `maps` `lskType` (`23, 24, 25+`) xatosi** (`opentele/td/account.py`);
-3. **Ko'p akkauntli (`Multi-Account`) `tdata` yuklashda `Account.api` cheksiz `RecursionError` xatosi** (`opentele/td/account.py`).
+The core `SessionManager.session_to_tdata` engine is written in pure Python and requires neither `opentele` nor `PyQt5`. However, for workflows that interact with existing `opentele` installations, the included patch resolves three upstream issues:
+1. **Python 3.13+ Class Attributes:** Excludes `__firstlineno__` and `__static_attributes__` during dynamic class extension in `opentele/utils.py`.
+2. **Telegram v4.x–v7.x+ Map Block Types:** Handles unknown `lskType` identifiers (`23, 24, 25+`) in `opentele/td/account.py`.
+3. **Multi-Account Recursion Loop:** Prevents an infinite `RecursionError` in `Account.api` when loading multiple accounts in `opentele/td/account.py`.
 
-Patchni o'rnatish:
+Apply the patch with:
 ```bash
 python main.py --patch
 ```
 
 ---
 
-## 👥 Bir nechta Akkauntni Ishlatish (Multi-Account va Telegram Portable)
+## 👥 Multi-Account Workflow & Telegram Portable Execution
 
-1. **Bitta Telegram ichida bir nechta akkaunt:**
-   `python main.py --convert -s acc1.session acc2.session -o "C:\Telegram_Portable\tdata"` buyrug'i orqali 16 tagacha akkauntni bitta `tdata` papkasiga joylashtirishingiz mumkin.
-2. **Alohida Telegram Portable nusxasi:**
-   Rasmiy **Telegram Desktop Portable** versiyasini alohida papkaga (masalan: `C:\Telegram_2`) joylab, ichiga tiklangan `tdata` papkasini qo'ysangiz, asosiy Telegram va Portable Telegram bir-biriga xalaqit bermasdan parallel ishlaydi.
-
----
-
-## 🛡️ Git va Xavfsizlik Qoidalari
-
-1. **Repository'ni PRIVATE (Yopiq) saqlang:** Maxfiy kalitlar va xavfsizlik vositalarini ochiq (Public) repozitoriyga yuklamang.
-2. **`.gitignore` himoyasi:** Loyiha ichidagi `.gitignore` fayli shaxsiy sessiyalar (`*.session`), binar kalitlar (`*.bin`), parollar (`found_*.txt`), JSON audit hisobotlari va arxivlar (`*.zip`, `*.xz`) gitga tushib ketishini avtomatik bloklaydi.
+1. **Consolidated Multi-Account TData:**
+   Run `python main.py --convert -s acc1.session acc2.session -o "C:\Telegram_Portable\tdata"` to combine up to 16 accounts into one client directory.
+2. **Side-by-Side Portable Instances:**
+   Deploy the official **Telegram Desktop Portable** build into a distinct directory (e.g., `C:\Telegram_Instance2`) alongside your primary client. Extracted `tdata` configurations run concurrently without session conflicts.
 
 ---
 
-## 🏛️ Loyiha Arxitekturasi
+## 🛡️ Git & Operational Security Guidelines
+
+1. **Keep Repositories Private:** Never publish sensitive session artifacts or encryption keys to public repositories.
+2. **Enforce `.gitignore` Protections:** The included `.gitignore` rules prevent SQLite sessions (`*.session`), binary keys (`*.bin`), passcode dumps (`found_*.txt`), JSON forensic exports, and compressed archives (`*.zip`, `*.xz`) from being tracked by version control.
+
+---
+
+## 🏛️ Architecture & Project Structure
 
 ```text
 Telegram_Security_Toolkit/
 │
-├── README.md                        # Texnik va amaliy qo'llanma
-├── pyproject.toml                   # Standart Python paket konfiguratsiyasi (v2.0.0)
-├── requirements.txt                 # Zarur kutubxonalar ro'yxati
-├── .gitignore                       # Maxfiy ma'lumotlar va sessiyalar himoyasi
-├── main.py                          # Yagona interaktiv menyu va CLI orkestratori
+├── README.md                        # Technical documentation and reference manual
+├── pyproject.toml                   # Standard Python packaging configuration (v2.0.0)
+├── requirements.txt                 # Project dependencies
+├── .gitignore                       # Artifact and session exclusions
+├── main.py                          # Unified CLI entry point and interactive menu
 │
-├── core/                            # Kriptografik va binar tahlil yadrosi
+├── core/                            # Cryptographic and binary parsing foundation
 │   ├── __init__.py
 │   ├── crypto.py                    # KD2 Argon2id, PBKDF2-HMAC-SHA512, MTProto AES-256-IGE
-│   ├── hardware.py                  # Dinamik CPU oqimlari va RAM xotirani xavfsiz boshqarish
-│   ├── tdata_parser.py              # TDF$ formati, MD5 nazorati, Zip-Slip himoyasi, universal loader
-│   ├── dc_extractor.py              # Multi-DC AuthKey, TLV maps parseri, Pure-Python TData seriyalash
-│   └── session_manager.py           # SQLite .session yaratish va Pure-Python multi-account session->tdata
+│   ├── hardware.py                  # Dynamic CPU/RAM resource scaling and process priority
+│   ├── tdata_parser.py              # TDF$ format parser, MD5 integrity, Zip-Slip defense
+│   ├── dc_extractor.py              # Multi-DC keys, TLV maps parser, Pure-Python TData serializer
+│   └── session_manager.py           # SQLite .session creation & Pure-Python multi-account conversion
 │
-├── modules/                         # Amaliy CLI va SDK modullari
+├── modules/                         # Functional CLI and operational modules
 │   ├── __init__.py
-│   ├── harvester.py                 # TData qidiruvchi va ixcham ZIP arxivlovchi
-│   ├── forensic_analyzer.py         # 100% oflayn kriministik tahlil va JSON audit hisoboti
-│   ├── cracker.py                   # Ko'p oqimli adaptiv KD2 / PBKDF2 parol tiklovchi
-│   ├── session_extractor.py         # Bitta yoki barcha (--all) akkauntlardan .session ajratuvchi
-│   ├── session_to_tdata.py          # Bitta yoki bir nechta .session ni toza tdata ga aylantiruvchi
-│   ├── session_checker.py           # Sessiya faolligi va profil ma'lumotlarini tekshiruvchi
-│   └── restorer.py                  # Backupni parolsiz holatda to'liq tiklovchi (In-Place Unlocker)
+│   ├── harvester.py                 # TData discovery and lightweight archiver
+│   ├── forensic_analyzer.py         # 100% offline forensic analysis and JSON report generator
+│   ├── cracker.py                   # Multi-core adaptive KD2/PBKDF2 brute-force engine
+│   ├── session_extractor.py         # Single and multi-account (--all) session exporter
+│   ├── session_to_tdata.py          # Session-to-TData generator (Pure-Python engine)
+│   ├── session_checker.py           # Remote session status and account metadata verification
+│   └── restorer.py                  # In-place passcode unlocker and backup restorer
 │
-├── patches/                         # Qo'shimcha OpenTele moslashuvchanlik paketi
-│   ├── README.md                    # OpenTele 3 ta xatosining texnik tahlili
-│   └── patch_opentele.py            # Avtomatik 3-in-1 patch skripti
+├── patches/                         # Compatibility layer for legacy external libraries
+│   ├── README.md                    # Root-cause analysis and patch documentation
+│   └── patch_opentele.py            # Automated 3-in-1 patcher
 │
-└── tests/                           # 22 ta avtomatlashtirilgan Unit va E2E testlar to'plami
-    ├── test_crypto.py               # Kriptografik primitivlar testi
-    ├── test_hardware.py             # Uskuna va xotira boshqaruvi testi
-    ├── test_parser_and_extractor.py # Zip-Slip, .tar.xz, TLV maps, 16-account va TDF$ testlari
-    ├── test_e2e_pipeline.py         # Pure-Python multi-account tdata, forensic audit va E2E zanjir
-    └── run_all_tests.py             # Barcha testlarni yagona buyruqda ishga tushiruvchi
+└── tests/                           # 22 automated unit and integration tests
+    ├── test_crypto.py               # Cryptographic primitive tests
+    ├── test_hardware.py             # Hardware detection and resource allocation tests
+    ├── test_parser_and_extractor.py # Zip-Slip, .tar.xz, TLV maps, 16-account & TDF$ tests
+    ├── test_e2e_pipeline.py         # Pure-Python multi-account tdata, forensic audit & E2E tests
+    └── run_all_tests.py             # Test runner orchestrator
 ```

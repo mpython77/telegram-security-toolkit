@@ -145,7 +145,7 @@ def is_session_critical(file_path: Path, tdata_root: Path) -> bool:
 
 
 def harvest_tdata(tdata_path: Path, output_zip: Path) -> bool:
-    print(f"📦 Arxivlanmoqda: {tdata_path}")
+    print(f"📦 Archiving: {tdata_path}")
     output_zip.parent.mkdir(parents=True, exist_ok=True)
 
     files_to_pack: List[Path] = []
@@ -157,7 +157,7 @@ def harvest_tdata(tdata_path: Path, output_zip: Path) -> bool:
             continue
 
     if not files_to_pack:
-        print("⚠️ Muhim sessiya fayllari topilmadi!")
+        print("⚠️ No session-critical files found!")
         return False
 
     packed_count = 0
@@ -168,15 +168,15 @@ def harvest_tdata(tdata_path: Path, output_zip: Path) -> bool:
                 zf.write(f, arcname)
                 packed_count += 1
             except (PermissionError, OSError) as e:
-                print(f"   ⚠️ Fayl band (o'tkazib yuborildi): {f.name} ({e})")
+                print(f"   ⚠️ File locked (skipped): {f.name} ({e})")
 
     if packed_count == 0:
         output_zip.unlink(missing_ok=True)
         return False
 
     size_mb = output_zip.stat().st_size / (1024 * 1024)
-    print(f"✅ Muvaffaqiyatli arxivlandi: {output_zip.name} ({size_mb:.2f} MB)")
-    print(f"   Jami kiritilgan fayllar: {packed_count} ta")
+    print(f"✅ Successfully archived: {output_zip.name} ({size_mb:.2f} MB)")
+    print(f"   Total packed files: {packed_count}")
     return True
 
 
@@ -190,10 +190,10 @@ def run_harvest(output_dir: str = ".", custom_path: Optional[str] = None) -> Lis
     tdata_dirs = [Path(custom_path)] if custom_path else find_all_tdata()
 
     if not tdata_dirs:
-        print("❌ Tizimda Telegram tdata papkasi topilmadi!")
+        print("❌ No Telegram tdata directories found on this system!")
         return []
 
-    print(f"Topilgan tdata joylashuvlari ({len(tdata_dirs)} ta):")
+    print(f"Discovered tdata locations ({len(tdata_dirs)}):")
     for idx, td in enumerate(tdata_dirs, 1):
         print(f"   {idx}. {td}")
 
@@ -210,8 +210,8 @@ def run_harvest(output_dir: str = ".", custom_path: Optional[str] = None) -> Lis
 
 def main():
     parser = argparse.ArgumentParser(description="Telegram TData Harvester")
-    parser.add_argument("--output", "-o", type=str, default=".", help="ZIP arxiv saqlanadigan papka")
-    parser.add_argument("--path", "-p", type=str, help="Maxsus tdata papkasi yo'li (agar avtomatik topilmasa)")
+    parser.add_argument("--output", "-o", type=str, default=".", help="Directory to save generated ZIP archive")
+    parser.add_argument("--path", "-p", type=str, help="Custom tdata directory path (if not detected automatically)")
 
     args = parser.parse_args()
     zips = run_harvest(output_dir=args.output, custom_path=args.path)

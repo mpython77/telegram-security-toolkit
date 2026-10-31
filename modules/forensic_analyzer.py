@@ -57,7 +57,7 @@ def analyze_source(
     """
     source_path = Path(source)
     if not source_path.exists():
-        raise FileNotFoundError(f"Manba topilmadi: {source_path}")
+        raise FileNotFoundError(f"Source not found: {source_path}")
 
     report: Dict[str, Any] = {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
@@ -224,68 +224,68 @@ def analyze_source(
         out_p.parent.mkdir(parents=True, exist_ok=True)
         out_p.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
         if not quiet:
-            print(f"📄 JSON kriministik hisobot saqlandi: {out_p.resolve()}")
+            print(f"📄 Forensic JSON report saved to: {out_p.resolve()}")
 
     return report
 
 
 def _print_report(report: Dict[str, Any]) -> None:
     print("=" * 70)
-    print("🔬 TELEGRAM DESKTOP OFLAYN KRIMINISTIK TAHLIL HISOBOTI (FORENSIC AUDIT)")
+    print("🔬 TELEGRAM DESKTOP OFFLINE DIGITAL FORENSIC REPORT")
     print("=" * 70)
-    print(f"📂 Manba          : {report['source_path']}")
-    print(f"🏷️  Manba turi     : {report['source_type']}")
+    print(f"📂 Source          : {report['source_path']}")
+    print(f"🏷️  Source Type     : {report['source_type']}")
     if report.get("container_sha256"):
-        print(f"🛡️  SHA-256 (Fayl) : {report['container_sha256']}")
+        print(f"🛡️  SHA-256 (File)  : {report['container_sha256']}")
 
     if report["source_type"] == "telethon_session":
         si = report["session_info"]
         print("-" * 70)
-        print(f"🆔 User ID        : {si.get('user_id') or 'Noma\'lum'}")
-        print(f"👤 Ism / Username : {si.get('first_name') or '-'} (@{si.get('username') or 'yo\'q'})")
-        print(f"📞 Telefon        : +{si.get('phone') or 'yo\'q'}")
-        print(f"🌐 Asosiy DC      : DC {si.get('dc_id')} ({si.get('server')})")
-        print(f"🔑 AuthKey ID     : {si.get('auth_key_id_hex')} ({si.get('auth_key_id')})")
-        print(f"🔑 Mavjud DClar   : {si.get('dc_list')}")
+        print(f"🆔 User ID         : {si.get('user_id') or 'Unknown'}")
+        print(f"👤 Name / Username : {si.get('first_name') or '-'} (@{si.get('username') or 'none'})")
+        print(f"📞 Phone           : +{si.get('phone') or 'none'}")
+        print(f"🌐 Main DC         : DC {si.get('dc_id')} ({si.get('server')})")
+        print(f"🔑 AuthKey ID      : {si.get('auth_key_id_hex')} ({si.get('auth_key_id')})")
+        print(f"🔑 Available DCs   : {si.get('dc_list')}")
         print("=" * 70)
         return
 
     tdf = report["tdf_integrity"]
     enc = report["encryption"]
     print("-" * 70)
-    print(f"📦 TDF$ Butunligi : {tdf['valid_md5_count']}/{tdf['total_tdf_files']} ta fayl MD5 nazoratidan o'tdi")
+    print(f"📦 TDF$ Integrity  : {tdf['valid_md5_count']}/{tdf['total_tdf_files']} files passed MD5 verification")
     if tdf["corrupted_files"]:
-        print(f"⚠️  Buzilganlar    : {tdf['corrupted_files']}")
-    print(f"🔖 TDF$ Versiyasi : {enc['tdf_version_str']}")
-    print(f"🔐 KDF Algoritmi  : {enc['kdf_name']} (kdf_id={enc['kdf_id']})")
+        print(f"⚠️  Corrupted       : {tdf['corrupted_files']}")
+    print(f"🔖 TDF$ Version    : {enc['tdf_version_str']}")
+    print(f"🔐 KDF Algorithm   : {enc['kdf_name']} (kdf_id={enc['kdf_id']})")
     if enc["kdf_id"] != 0:
-        print(f"⚙️  Argon2id       : {enc['memory_cost_kb'] // 1024} MB RAM, {enc['time_cost']} iteratsiya, {enc['threads']} oqim")
-    print(f"🧂 Salt (32 bayt) : {enc['salt_hex'][:32]}...")
-    print(f"🔒 Lokal Parol    : {'BOR (Himoyalangan)' if enc['has_passcode'] else 'YO\'Q (Ochiq)'}")
-    print(f"🔓 Kalit Holati   : {'OCHILGAN (LocalKey mavjud)' if enc['unlocked'] else 'QULFLANGAN (--passcode kiriting)'}")
+        print(f"⚙️  Argon2id        : {enc['memory_cost_kb'] // 1024} MB RAM, {enc['time_cost']} iterations, {enc['threads']} threads")
+    print(f"🧂 Salt (32 bytes) : {enc['salt_hex'][:32]}...")
+    print(f"🔒 Local Passcode  : {'YES (Protected)' if enc['has_passcode'] else 'NO (Unencrypted)'}")
+    print(f"🔓 Key Status      : {'UNLOCKED (LocalKey ready)' if enc['unlocked'] else 'LOCKED (specify --passcode)'}")
 
     if enc["unlocked"]:
-        print(f"🧬 LocalKey SHA256: {enc['local_key_sha256'][:32]}...")
+        print(f"🧬 LocalKey SHA256 : {enc['local_key_sha256'][:32]}...")
         meta = report.get("accounts_metadata")
         if meta:
-            print(f"📋 Konfiguratsiya : {meta['count']} ta akkaunt, indekslar={meta['indexes']}, faol={meta['active_index']}")
+            print(f"📋 Configuration   : {meta['count']} account(s), indexes={meta['indexes']}, active={meta['active_index']}")
 
         print("-" * 70)
-        print(f"✅ Faol Akkauntlar ({len(report['accounts'])} ta):")
+        print(f"✅ Active Accounts ({len(report['accounts'])}):")
         for acc in report["accounts"]:
             prof = acc.get("profile") or {}
-            p_str = f"{prof.get('full_name', '')} (@{prof.get('username') or 'yo\'q'}, +{prof.get('phone') or 'yo\'q'})"
+            p_str = f"{prof.get('full_name', '')} (@{prof.get('username') or 'none'}, +{prof.get('phone') or 'none'})"
             print(f"   • [{acc['folder_hash']}] (Index: {acc['account_index']}) | User ID: {acc['user_id']} | {p_str}")
-            print(f"     🌐 Main DC: {acc['main_dc_id']} | Barcha DClar: {acc['dcs']}")
+            print(f"     🌐 Main DC: {acc['main_dc_id']} | All DCs: {acc['dcs']}")
             for dc_id, fp in acc["dc_fingerprints"].items():
                 print(f"        - DC {dc_id}: key_id={fp['auth_key_id_hex']} | sha256={fp['sha256'][:16]}...")
             ms = acc.get("maps_summary")
             if ms and ms.get("decrypted"):
-                print(f"     🗺️  maps bloklari ({ms['block_count']} ta): {', '.join(ms['block_types'])}")
-                print(f"     📝 Saqlangan qoralamalar (lskDraft): {ms['draft_count']} ta")
+                print(f"     🗺️  maps blocks ({ms['block_count']}): {', '.join(ms['block_types'])}")
+                print(f"     📝 Saved drafts (lskDraft): {ms['draft_count']}")
 
         if report["orphaned_sessions"]:
-            print(f"\n🧹 Begona/Eski LocalKey ga tegishli qoldiq sessiyalar ({len(report['orphaned_sessions'])} ta):")
+            print(f"\n🧹 Orphaned sessions belonging to previous/different LocalKeys ({len(report['orphaned_sessions'])}):")
             for orph in report["orphaned_sessions"]:
                 print(f"   • [{orph['folder_hash']}] (Index: {orph['account_index']}) -> {orph['reason']}")
 
@@ -294,10 +294,10 @@ def _print_report(report: Dict[str, Any]) -> None:
 
 def main():
     parser = argparse.ArgumentParser(description="Telegram Offline Forensic Analyzer")
-    parser.add_argument("--source", "-s", required=True, help="Backup (.zip/.tar.xz), tdata papkasi yoki .session fayli")
-    parser.add_argument("--passcode", "-p", type=str, default=None, help="Lokal PIN/parol (agar mavjud bo'lsa)")
-    parser.add_argument("--key", "-k", type=str, default=None, help="Oldindan topilgan found_local_key.bin fayli")
-    parser.add_argument("--json", "-j", type=str, default=None, help="JSON hisobotni saqlash yo'li (masalan: audit.json)")
+    parser.add_argument("--source", "-s", required=True, help="Backup (.zip/.tar.xz), tdata folder, or .session file")
+    parser.add_argument("--passcode", "-p", type=str, default=None, help="Local PIN/passcode (if present)")
+    parser.add_argument("--key", "-k", type=str, default=None, help="Pre-recovered found_local_key.bin file path")
+    parser.add_argument("--json", "-j", type=str, default=None, help="Path to export JSON forensic report (e.g. audit.json)")
 
     args = parser.parse_args()
     try:
@@ -308,7 +308,7 @@ def main():
             output_json=args.json,
         )
     except Exception as e:
-        print(f"❌ Xatolik yuz berdi: {e}")
+        print(f"❌ Error occurred: {e}")
         sys.exit(1)
 
 

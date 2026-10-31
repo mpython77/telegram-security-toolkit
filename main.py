@@ -39,74 +39,74 @@ BANNER = r"""
 """
 
 HELP_TEXT = """
-Telegram Desktop Security, Forensics & Recovery Toolkit - CLI Yordam
+Telegram Desktop Security, Forensics & Recovery Toolkit - CLI Help
 
-Foydalanish:
-  python main.py                         Interaktiv menyuni ishga tushirish
-  python main.py --harvest [opsiyalar]   TData qidirish va ixcham ZIP arxiv yaratish
-  python main.py --crack   [opsiyalar]   KD2 / PBKDF2 parolni multi-core sindirish
-  python main.py --extract [opsiyalar]   Arxiv/tdata dan Telethon .session ajratish
-  python main.py --convert [opsiyalar]   .session fayl(lar)ini parolsiz toza tdata qilish
-  python main.py --check   [opsiyalar]   .session faolligini va profilni tekshirish
-  python main.py --restore [opsiyalar]   Arxiv/tdata ni parolini yechib Telegram'ga tiklash
-  python main.py --analyze [opsiyalar]   100% oflayn kriministik audit va JSON hisobot
-  python main.py --patch                 Python 3.13/3.14+ va Telegram v7.x+ OpenTele patchi
-  python main.py --test                  Barcha avtomatlashtirilgan testlarni bajarish
+Usage:
+  python main.py                         Launch interactive menu
+  python main.py --harvest [options]     Find TData installations and create compact ZIP
+  python main.py --crack   [options]     Multi-core KD2 / PBKDF2 passcode cracker
+  python main.py --extract [options]     Extract Telethon .session from backup/tdata
+  python main.py --convert [options]     Convert .session file(s) to clean, unencrypted tdata
+  python main.py --check   [options]     Verify session connectivity and account details
+  python main.py --restore [options]     Restore and unlock passcode in-place to target tdata
+  python main.py --analyze [options]     100% offline forensic audit and JSON report
+  python main.py --patch                 Install Python 3.13/3.14+ & Telegram v7.x+ OpenTele patch
+  python main.py --test                  Run the full automated test suite
 """
 
 
 def interactive_menu():
     while True:
         print(BANNER)
-        print("  [1] 📦 Telegram TData Harvester (Keraksiz keshni tashlab, ixcham ZIP yaratish)")
-        print("  [2] 🔓 KD2 Passcode Cracker (Argon2id + AES-IGE PIN kodni multi-core sindirish)")
-        print("  [3] 🔑 Session Extractor (Arxivdan toza Telethon .session ajratib olish)")
-        print("  [4] 🚀 Session -> TData Converter (.session fayl(lar)ini parolsiz tdata qilish)")
-        print("  [5] 🔍 Session Health Checker (Sessiya holati, profil va qurilmalarni tekshirish)")
-        print("  [6] 🔄 TData Restorer & Passcode Unlocker (Arxivni parolsiz holatda to'liq tiklash)")
-        print("  [7] 🔬 Offline Forensic Analyzer (100% oflayn kriministik audit va JSON hisobot)")
-        print("  [8] 🩹 Python 3.13/3.14+ & Telegram v7.x+ OpenTele Patchini o'rnatish")
-        print("  [0] ❌ Chiqish")
+        print("  [1] 📦 Telegram TData Harvester (Skip media cache, create lightweight ZIP)")
+        print("  [2] 🔓 KD2 Passcode Cracker (Argon2id + AES-IGE multi-core brute-force)")
+        print("  [3] 🔑 Session Extractor (Extract clean Telethon .session from backup)")
+        print("  [4] 🚀 Session -> TData Converter (Convert .session file(s) to clean tdata)")
+        print("  [5] 🔍 Session Health Checker (Verify session status, profile, and devices)")
+        print("  [6] 🔄 TData Restorer & Passcode Unlocker (Restore archive with passcode removed)")
+        print("  [7] 🔬 Offline Forensic Analyzer (100% offline audit & JSON export)")
+        print("  [8] 🩹 Apply Python 3.13/3.14+ & Telegram v7.x+ OpenTele Patch")
+        print("  [0] ❌ Exit")
         print("=" * 70)
 
         try:
-            choice = input("Tanlovingizni kiriting [0-8]: ").strip()
+            choice = input("Enter your choice [0-8]: ").strip()
         except (EOFError, KeyboardInterrupt):
-            print("\nDastur yakunlandi. Xayr!")
+            print("\nExiting. Goodbye!")
             break
 
         if choice == "0":
-            print("\nDastur yakunlandi. Xayr!")
+            print("\nExiting. Goodbye!")
             break
 
         try:
             if choice == "1":
                 print("\n--- 1. TData Harvester ---")
-                out_dir = input("ZIP saqlanadigan papka [standart: joriy papka]: ").strip().strip('"') or "."
-                custom_p = input("Maxsus tdata yo'li (avtomatik qidirish uchun bo'sh qoldiring): ").strip().strip('"') or None
+                out_dir = input("Output directory for ZIP archive [default: current dir]: ").strip().strip('"') or "."
+                custom_p = input("Custom tdata path (leave empty for auto-discovery): ").strip().strip('"') or None
                 run_harvest(output_dir=out_dir, custom_path=custom_p)
 
             elif choice == "2":
                 print("\n--- 2. KD2 Passcode Cracker ---")
-                src = input("ZIP/XZ arxiv yoki tdata papkasi yo'lini kiriting: ").strip().strip('"')
+                src = input("Enter path to ZIP/XZ archive or tdata directory: ").strip().strip('"')
                 if not src:
-                    print("❌ Manba kiritilmadi!")
+                    print("❌ No source path provided!")
                     continue
                 mode = input(
-                    "Rejimni tanlang (1: 4-xonali PIN [0000-9999], 2: 6-xonali PIN [000000-999999], "
-                    "3: Maxsus oraliq, 4: Wordlist) [1]: "
+                    "Select mode (1: 4-digit PIN [0000-9999], 2: 6-digit PIN [000000-999999], "
+                    "3: Custom range, 4: Wordlist) [1]: "
                 ).strip()
 
                 candidates = []
                 if mode == "2":
                     candidates = [f"{i:06d}" for i in range(1000000)]
                 elif mode == "3":
-                    start_n = int(input("Boshlanish soni (masalan: 1000): ").strip())
-                    end_n = int(input("Tugash soni (masalan: 2000): ").strip())
+                    start_n = int(input("Start number (e.g. 1000): ").strip())
+                    end_n = int(input("End number (e.g. 2000): ").strip())
                     width = max(4, len(str(end_n)))
                     candidates = [f"{i:0{width}d}" for i in range(start_n, end_n + 1)]
                 elif mode == "4":
-                    w_path = input("Wordlist .txt fayl yo'li: ").strip().strip('"')
+                    w_path = input("Wordlist .txt file path: ").strip().strip('"')
                     candidates = Path(w_path).read_text(encoding="utf-8", errors="ignore").splitlines()
                 else:
                     candidates = [f"{i:04d}" for i in range(10000)]
@@ -116,12 +116,12 @@ def interactive_menu():
 
             elif choice == "3":
                 print("\n--- 3. Session Extractor ---")
-                src = input("ZIP/XZ arxiv yoki tdata papkasi yo'li: ").strip().strip('"')
-                pwd = input("Lokal PIN/Parol (agar parolsiz bo'lsa, bo'sh qoldiring): ").strip()
-                key_f = input("Yoki found_local_key.bin fayl yo'li (bo'sh qoldirish mumkin): ").strip().strip('"')
-                dc = input("Maqsadli DC ID [standart: avtomatik MainDC]: ").strip()
+                src = input("Path to ZIP/XZ archive or tdata directory: ").strip().strip('"')
+                pwd = input("Local PIN/passcode (leave empty if unencrypted): ").strip()
+                key_f = input("Or path to found_local_key.bin (optional): ").strip().strip('"')
+                dc = input("Target DC ID [default: automatic MainDC]: ").strip()
                 dc_id = int(dc) if dc else None
-                out_sess = input("Chiqish .session fayli nomi [avtomatik nomlash uchun bo'sh qoldiring]: ").strip().strip('"')
+                out_sess = input("Output .session file path [leave empty for auto-naming]: ").strip().strip('"')
 
                 extract_session_from_backup(
                     source=src,
@@ -132,31 +132,32 @@ def interactive_menu():
                 )
 
             elif choice == "4":
-                print("\n--- 4. Session -> Toza TData Converter ---")
-                sess = input("Kirish .session fayli yo'li: ").strip().strip('"')
-                out_td = input("Chiqish tdata papkasi yo'li: ").strip().strip('"')
-                convert_session(sess, out_td)
+                print("\n--- 4. Session -> Clean TData Converter ---")
+                sess = input("Input .session file path(s) (space-separated for multi-account): ").strip().strip('"')
+                sess_paths = [p.strip().strip('"') for p in sess.split() if p.strip()]
+                out_td = input("Output tdata directory path: ").strip().strip('"')
+                convert_session(sess_paths, out_td)
 
             elif choice == "5":
                 print("\n--- 5. Session Health Checker ---")
-                sess = input("Tekshiriladigan .session fayli yo'li: ").strip().strip('"')
+                sess = input("Path to .session file to verify: ").strip().strip('"')
                 check_session_cli(sess)
 
             elif choice == "6":
                 print("\n--- 6. TData Restorer & In-Place Passcode Unlocker ---")
-                src = input("ZIP/XZ arxiv yoki tdata papkasi yo'li: ").strip().strip('"')
-                tgt = input("Tiklanadigan tdata yo'li (tizimdan avtomatik topish uchun bo'sh qoldiring): ").strip().strip('"')
+                src = input("Path to ZIP/XZ archive or tdata directory: ").strip().strip('"')
+                tgt = input("Target tdata destination path (leave empty for auto-detection): ").strip().strip('"')
                 if not tgt:
                     cands = find_all_tdata()
                     if not cands:
-                        print("❌ Tizimda tdata topilmadi! Yo'lni qo'lda kiriting.")
+                        print("❌ No Telegram Desktop tdata found on this system! Please enter path manually.")
                         continue
                     for idx, c_path in enumerate(cands, 1):
                         print(f"   {idx}. {c_path}")
-                    sel = input(f"Tanlang [1-{len(cands)}, standart=1]: ").strip() or "1"
+                    sel = input(f"Select [1-{len(cands)}, default=1]: ").strip() or "1"
                     tgt = str(cands[int(sel) - 1])
-                pwd = input("Lokal PIN/Parol (avtomatik topish yoki parolsiz bo'lsa bo'sh qoldiring): ").strip()
-                auto_c = input("Agar parol bo'lsa, 4-xonali PIN-kodni avtomatik ochsinmi? (y/n) [y]: ").strip().lower()
+                pwd = input("Local PIN/passcode (leave empty for auto-crack or if unencrypted): ").strip()
+                auto_c = input("If locked, automatically crack 4-digit PIN? (y/n) [y]: ").strip().lower()
                 unlock_and_restore_tdata(
                     source=src,
                     target_tdata=tgt,
@@ -166,9 +167,9 @@ def interactive_menu():
 
             elif choice == "7":
                 print("\n--- 7. Offline Forensic Analyzer ---")
-                src = input("ZIP/XZ arxiv, tdata papkasi yoki .session fayli yo'li: ").strip().strip('"')
-                pwd = input("Lokal PIN/Parol (agar ma'lum bo'lsa, bo'sh qoldirish mumkin): ").strip()
-                json_out = input("JSON hisobot saqlash yo'li (ixtiyoriy, masalan audit.json): ").strip().strip('"')
+                src = input("Path to ZIP/XZ archive, tdata directory, or .session file: ").strip().strip('"')
+                pwd = input("Local PIN/passcode (if known, or leave empty): ").strip()
+                json_out = input("JSON report export path (optional, e.g. audit.json): ").strip().strip('"')
                 analyze_source(
                     source=src,
                     passcode=pwd if pwd else None,
@@ -180,13 +181,13 @@ def interactive_menu():
                 apply_patch()
 
             else:
-                print("⚠️ Noto'g'ri tanlov! Qaytadan urinib ko'ring.")
+                print("⚠️ Invalid selection! Please try again.")
 
         except Exception as e:
-            print(f"\n❌ Xatolik yuz berdi: {e}")
+            print(f"\n❌ An error occurred: {e}")
 
         try:
-            input("\nDavom etish uchun [Enter] tugmasini bosing...")
+            input("\nPress [Enter] to continue...")
         except (EOFError, KeyboardInterrupt):
             break
 
@@ -224,7 +225,7 @@ if __name__ == "__main__":
             from tests.run_all_tests import run_suite
             sys.exit(0 if run_suite() else 1)
         else:
-            print(f"⚠️ Noma'lum buyruq: {subcmd}")
+            print(f"⚠️ Unknown command: {subcmd}")
             print(HELP_TEXT)
             sys.exit(1)
     else:

@@ -39,7 +39,7 @@ def extract_session_from_backup(
 ) -> Union[Path, List[Path]]:
     source_path = Path(source)
     if not source_path.exists():
-        raise FileNotFoundError(f"Manba topilmadi: {source_path}")
+        raise FileNotFoundError(f"Source not found: {source_path}")
 
     # 1. Parse KD2/PBKDF2, session files, and maps from any supported archive or directory
     bundle = TDataParser.load_full_source(source_path)
@@ -48,19 +48,19 @@ def extract_session_from_backup(
     maps_files = bundle.maps_files
 
     if not session_files:
-        raise ValueError("Arxiv/papkada sessiya fayli (*s) topilmadi!")
+        raise ValueError("No session files (*s) found in archive/directory!")
 
     # 2. Obtain master LocalKey
     local_key: Optional[bytes] = None
     if local_key_path and Path(local_key_path).exists():
         local_key = Path(local_key_path).read_bytes()[:256]
-        print(f"🔑 LocalKey fayldan yuklandi: {len(local_key)} bayt")
+        print(f"🔑 LocalKey loaded from file: {len(local_key)} bytes")
     else:
         cand_pwd = passcode if passcode is not None else ""
         if passcode is not None:
-            print(f"🔍 Parol tekshirilmoqda: '{passcode}'...")
+            print(f"🔍 Testing passcode: '{passcode}'...")
         else:
-            print("🔍 Lokal parolsiz (bo'sh parol '') holati tekshirilmoqda...")
+            print("🔍 Checking empty passcode (passcode-free account)...")
 
         ok, cand_key = verify_kd2_candidate(
             cand_pwd,
@@ -73,23 +73,23 @@ def extract_session_from_backup(
         )
         if not ok or cand_key is None:
             if passcode is None:
-                raise ValueError("Akkauntda lokal parol o'rnatilgan! Iltimos, --passcode yoki --key parametrini kiriting.")
-            raise ValueError(f"Noto'g'ri passcode: '{passcode}'")
+                raise ValueError("Account is protected by a local passcode! Please provide --passcode or --key.")
+            raise ValueError(f"Invalid passcode: '{passcode}'")
 
         local_key = cand_key[:256]
-        print(f"✅ Kalit ochildi! LocalKey shifrdan yechildi ({len(local_key)} bayt)")
+        print(f"✅ Key unlocked! LocalKey decrypted successfully ({len(local_key)} bytes)")
 
     # 2.5 Inspect accounts metadata from key_datas
     if bundle.kd_raw:
         acc_meta = TDataParser.parse_accounts_metadata(bundle.kd_raw, local_key)
         if acc_meta:
             print(
-                f"📋 Telegram konfiguratsiyasi: {acc_meta['count']} ta akkaunt "
-                f"(Faol profil indeksi: {acc_meta['active_index']})"
+                f"📋 Telegram configuration: {acc_meta['count']} account(s) "
+                f"(Active profile index: {acc_meta['active_index']})"
             )
 
     # 3. Decrypt and scan all session files for active DC keys and offline profile
-    print(f"📦 Arxivdagi sessiya fayllari tahlil qilinmoqda ({len(session_files)} ta)...")
+    print(f"📦 Analyzing session files in backup ({len(session_files)})...")
     valid_sessions: Dict[str, MtpSessionInfo] = {}
 
     for s_name, s_raw in session_files.items():
@@ -104,8 +104,8 @@ def extract_session_from_backup(
 
     if not valid_sessions:
         raise ValueError(
-            "Sessiya fayllari ichidan birorta ham faol MTProto AuthKey topilmadi! "
-            "Parol noto'g'ri bo'lishi yoki sessiya tozalangan bo'lishi mumkin."
+            "No active MTProto AuthKey found in session files! "
+            "Passcode may be incorrect or session data was purged."
         )
 
     # Prioritize authenticated sessions (user_id > 0) over unauthenticated login-screen sessions (user_id == 0)
@@ -113,20 +113,20 @@ def extract_session_from_backup(
     if auth_sessions:
         valid_sessions = auth_sessions
     else:
-        print("⚠️ OGOHLANTIRISH: Ushbu tdata hali akkauntga kirmagan (Login ekrani, User ID = 0)!")
+        print("⚠️ WARNING: This tdata is not logged in yet (Login screen, User ID = 0)!")
 
-    print(f"✅ Faol avtorizatsiyaga ega akkauntlar soni: {len(valid_sessions)} ta")
+    print(f"✅ Active authorized accounts found: {len(valid_sessions)}")
     session_items = list(valid_sessions.items())
     for idx, (s_name, s_info) in enumerate(session_items):
         prof_str = ""
         if s_info.profile:
             p = s_info.profile
-            uname = f"@{p.username}" if p.username else "yo'q"
-            ph = f"+{p.phone}" if p.phone else "yo'q"
-            prof_str = f" | Ism: {p.full_name} ({uname}, {ph})"
+            uname = f"@{p.username}" if p.username else "none"
+            ph = f"+{p.phone}" if p.phone else "none"
+            prof_str = f" | Name: {p.full_name} ({uname}, {ph})"
         print(
-            f"   👉 [{idx}] Akkaunt: {Path(s_name).name} | User ID: {s_info.user_id}{prof_str} | "
-            f"Main DC: {s_info.main_dc_id} | DC kalitlari: {list(s_info.dc_keys.keys())}"
+            f"   👉 [{idx}] Account: {Path(s_name).name} | User ID: {s_info.user_id}{prof_str} | "
+            f"Main DC: {s_info.main_dc_id} | DC Keys: {list(s_info.dc_keys.keys())}"
         )
         if s_info.profile and s_info.profile.bio:
             print(f"      📝 Bio: {s_info.profile.bio}")
@@ -136,11 +136,11 @@ def extract_session_from_backup(
         dc_to_use = target_dc if target_dc is not None else s_info.main_dc_id
         if dc_to_use not in all_dc_keys:
             fallback_dc = s_info.main_dc_id if s_info.main_dc_id in all_dc_keys else list(all_dc_keys.keys())[0]
-            print(f"⚠️ So'ralgan DC {dc_to_use} topilmadi, asosiy DC {fallback_dc} tanlandi.")
+            print(f"⚠️ Requested DC {dc_to_use} not found, defaulted to main DC {fallback_dc}.")
             dc_to_use = fallback_dc
 
         auth_key = all_dc_keys[dc_to_use]
-        print(f"\nTanlangan akkaunt: {Path(s_name).name} (User ID: {s_info.user_id}, DC: {dc_to_use})")
+        print(f"\nSelected account: {Path(s_name).name} (User ID: {s_info.user_id}, DC: {dc_to_use})")
 
         if not out_path_opt:
             out_path_opt = Path.cwd() / f"account_{s_info.user_id}_dc{dc_to_use}.session"
@@ -153,7 +153,7 @@ def extract_session_from_backup(
             all_dc_keys=all_dc_keys,
             profile=s_info.profile,
         )
-        print("🎉 Telethon sessiyasi muvaffaqiyatli yaratildi:")
+        print("🎉 Telethon session created successfully:")
         print(f"👉 {sess_file.resolve()}\n")
         return sess_file
 
@@ -171,7 +171,7 @@ def extract_session_from_backup(
 
     sel_idx = account_index if account_index is not None else 0
     if sel_idx < 0 or sel_idx >= len(session_items):
-        raise ValueError(f"Noto'g'ri akkaunt indeksi: {sel_idx} (mavjud: 0..{len(session_items) - 1})")
+        raise ValueError(f"Invalid account index: {sel_idx} (available: 0..{len(session_items) - 1})")
 
     chosen_s_name, chosen_info = session_items[sel_idx]
     out_p = Path(output_session_path) if output_session_path else None
@@ -180,13 +180,13 @@ def extract_session_from_backup(
 
 def main():
     parser = argparse.ArgumentParser(description="Telegram Session Extractor")
-    parser.add_argument("--source", "-s", required=True, help="Telegram backup (.zip/.tar.xz) yoki tdata papkasi")
-    parser.add_argument("--passcode", "-p", type=str, default=None, help="Lokal PIN/Parol (agar parolsiz bo'lsa, kiritish shart emas)")
-    parser.add_argument("--key", "-k", type=str, default=None, help="Oldindan topilgan found_local_key.bin fayli")
-    parser.add_argument("--dc", type=int, default=None, help="Maqsadli Data Center ID (standart: avtomatik MainDC)")
-    parser.add_argument("--account-index", "-i", type=int, default=None, help="Qaysi akkaunt indeksini ajratish (standart: 0)")
-    parser.add_argument("--all", action="store_true", help="Barcha faol akkauntlarni alohida .session fayllariga eksport qilish")
-    parser.add_argument("--output", "-o", type=str, default=None, help="Chiqish .session fayli yoki papkasi yo'li")
+    parser.add_argument("--source", "-s", required=True, help="Telegram backup (.zip/.tar.xz) or tdata directory")
+    parser.add_argument("--passcode", "-p", type=str, default=None, help="Local PIN/Passcode (not required if passcode-free)")
+    parser.add_argument("--key", "-k", type=str, default=None, help="Path to pre-recovered found_local_key.bin file")
+    parser.add_argument("--dc", type=int, default=None, help="Target Data Center ID (default: automatic Main DC)")
+    parser.add_argument("--account-index", "-i", type=int, default=None, help="Account index to extract (default: 0)")
+    parser.add_argument("--all", action="store_true", help="Export all active accounts into separate .session files")
+    parser.add_argument("--output", "-o", type=str, default=None, help="Output .session file or directory path")
 
     args = parser.parse_args()
 
@@ -201,7 +201,7 @@ def main():
             extract_all=args.all,
         )
     except Exception as e:
-        print(f"❌ Xatolik yuz berdi: {e}")
+        print(f"❌ Error occurred: {e}")
         sys.exit(1)
 
 

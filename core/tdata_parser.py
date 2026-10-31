@@ -78,12 +78,12 @@ class TDataParser:
             "error": None,
         }
         if len(raw_data) < 24:
-            info["error"] = f"Fayl hajmi juda kichik ({len(raw_data)} bayt)"
+            info["error"] = f"File size too small ({len(raw_data)} bytes)"
             return info
 
         magic = raw_data[:4]
         if magic != TDataParser.MAGIC_TDF:
-            info["error"] = f"Magic header TDF$ emas ({magic!r})"
+            info["error"] = f"Magic header is not TDF$ ({magic!r})"
             return info
 
         info["is_tdf"] = True
@@ -100,7 +100,7 @@ class TDataParser:
         info["stored_md5"] = stored_md5.hex()
         info["calculated_md5"] = calc_md5.hex()
         if not info["md5_valid"]:
-            info["error"] = "MD5 nazorat summasi mos kelmadi"
+            info["error"] = "MD5 checksum mismatch"
         return info
 
     @staticmethod
@@ -114,11 +114,11 @@ class TDataParser:
         - -16..: MD5 checksum of (payload + len(payload) + version + magic)
         """
         if len(raw_data) < 24:
-            raise ValueError(f"Fayl hajmi juda kichik: {len(raw_data)} bayt")
+            raise ValueError(f"File size too small: {len(raw_data)} bytes")
 
         magic = raw_data[:4]
         if magic != TDataParser.MAGIC_TDF:
-            raise ValueError(f"Noto'g'ri magic header: {magic!r}, kutilgan: {TDataParser.MAGIC_TDF!r}")
+            raise ValueError(f"Invalid magic header: {magic!r}, expected: {TDataParser.MAGIC_TDF!r}")
 
         version = struct.unpack_from("<I", raw_data, 4)[0]
         payload = raw_data[8:-16]
@@ -129,7 +129,7 @@ class TDataParser:
         calc_md5 = hashlib.md5(check_buf).digest()
 
         if stored_md5 != calc_md5:
-            raise ValueError("TDF$ fayl MD5 tekshiruvidan o'tmadi (fayl shikastlangan bo'lishi mumkin)")
+            raise ValueError("TDF$ file failed MD5 checksum verification (file may be corrupted)")
 
         return payload
 
@@ -196,7 +196,7 @@ class TDataParser:
                 kdf_id = struct.unpack_from(">I", blob, 8)[0]
                 if kdf_id != 0:
                     if len(blob) < 76 + 288:
-                        raise ValueError(f"KD2 tuzilmasi hajmi yetarli emas: {len(blob)} bayt")
+                        raise ValueError(f"KD2 structure size insufficient: {len(blob)} bytes")
 
                     mem = struct.unpack_from(">I", blob, 24)[0]
                     time_c = struct.unpack_from(">I", blob, 28)[0]
@@ -204,7 +204,7 @@ class TDataParser:
                     salt_len = struct.unpack_from(">I", blob, 36)[0]
 
                     if 40 + salt_len + 4 > len(blob):
-                        raise ValueError("KD2 salt uzunligi noto'g'ri")
+                        raise ValueError("Invalid KD2 salt length")
 
                     salt = blob[40 : 40 + salt_len]
                     enc_len_offset = 40 + salt_len
@@ -212,7 +212,7 @@ class TDataParser:
 
                     enc_blob_offset = enc_len_offset + 4
                     if enc_blob_offset + enc_len > len(blob) or enc_len < 32:
-                        raise ValueError("KD2 shifrlangan blok uzunligi noto'g'ri")
+                        raise ValueError("Invalid KD2 encrypted blob length")
                     enc_blob = blob[enc_blob_offset : enc_blob_offset + enc_len]
 
                     key128 = enc_blob[:16]
@@ -235,16 +235,16 @@ class TDataParser:
         # Standard / Legacy PBKDF2 format (used when no passcode is set, kdf_id=0 in KD2 stub, or pre-KD2 passcodes):
         # Field 0: salt (QByteArray), Field 1: keyEncrypted (QByteArray)
         if len(payload) < 40:
-            raise ValueError(f"key_datas payload juda kichik: {len(payload)} bayt")
+            raise ValueError(f"key_datas payload too small: {len(payload)} bytes")
 
         salt_len = struct.unpack_from(">I", payload, 0)[0]
         if salt_len == 0xFFFFFFFF or 4 + salt_len + 4 > len(payload):
-            raise ValueError("key_datas ichida na KD2 va na yaroqli PBKDF2 tuzilmasi topildi.")
+            raise ValueError("Neither KD2 nor valid PBKDF2 structure found in key_datas.")
 
         salt = payload[4 : 4 + salt_len]
         enc_len = struct.unpack_from(">I", payload, 4 + salt_len)[0]
         if enc_len == 0xFFFFFFFF or 8 + salt_len + enc_len > len(payload) or enc_len < 32:
-            raise ValueError("key_datas ichida shifrlangan kalit bloki (keyEncrypted) topilmadi.")
+            raise ValueError("Encrypted key blob (keyEncrypted) not found in key_datas.")
 
         enc_blob = payload[8 + salt_len : 8 + salt_len + enc_len]
         key128 = enc_blob[:16]
@@ -354,10 +354,10 @@ class TDataParser:
             for member in zf.infolist():
                 member_name = member.filename.replace("\\", "/")
                 if member_name.startswith("/") or ".." in Path(member_name).parts:
-                    raise ValueError(f"Xavfli arxiv yo'li (Zip-Slip aniqlandi): {member.filename}")
+                    raise ValueError(f"Unsafe archive path (Zip-Slip detected): {member.filename}")
                 dest_path = (target_root / member_name).resolve()
                 if not dest_path.is_relative_to(target_root):
-                    raise ValueError(f"Xavfli arxiv yo'li (Zip-Slip aniqlandi): {member.filename}")
+                    raise ValueError(f"Unsafe archive path (Zip-Slip detected): {member.filename}")
                 if member.is_dir():
                     dest_path.mkdir(parents=True, exist_ok=True)
                 else:
@@ -380,12 +380,12 @@ class TDataParser:
             for member in tar_obj.getmembers():
                 member_name = member.name.replace("\\", "/")
                 if member_name.startswith("/") or ".." in Path(member_name).parts:
-                    raise ValueError(f"Xavfli TAR yo'li (Path Traversal aniqlandi): {member.name}")
+                    raise ValueError(f"Unsafe TAR path (Path Traversal detected): {member.name}")
                 if member.issym() or member.islnk() or member.isdev():
-                    raise ValueError(f"Xavfli TAR element turi (symlink/device rad etildi): {member.name}")
+                    raise ValueError(f"Unsafe TAR entry type (symlink/device rejected): {member.name}")
                 dest_path = (target_root / member_name).resolve()
                 if not dest_path.is_relative_to(target_root):
-                    raise ValueError(f"Xavfli TAR yo'li (Path Traversal aniqlandi): {member.name}")
+                    raise ValueError(f"Unsafe TAR path (Path Traversal detected): {member.name}")
                 if member.isdir():
                     dest_path.mkdir(parents=True, exist_ok=True)
                 elif member.isfile():
@@ -414,7 +414,7 @@ class TDataParser:
         """
         source_path = Path(source)
         if not source_path.exists():
-            raise FileNotFoundError(f"Manba topilmadi: {source_path}")
+            raise FileNotFoundError(f"Source not found: {source_path}")
 
         if source_path.is_file() and source_path.name.startswith("key_data"):
             kd_raw = source_path.read_bytes()
@@ -439,12 +439,12 @@ class TDataParser:
                 elif name_low.endswith((".tar.xz", ".xz", ".tar.gz", ".tgz", ".tar")):
                     cls.safe_extract_tar(source_path, temp_dir)
                 else:
-                    raise ValueError(f"Qo'llab-quvvatlanmaydigan manba fayl formati: {source_path.name}")
+                    raise ValueError(f"Unsupported source file format: {source_path.name}")
                 scan_root = temp_dir
             elif source_path.is_dir():
                 scan_root = source_path
             else:
-                raise ValueError(f"Noma'lum manba: {source_path}")
+                raise ValueError(f"Unknown source: {source_path}")
 
             kd_path = scan_root / "key_datas"
             if not kd_path.exists():
@@ -452,7 +452,7 @@ class TDataParser:
                 if nested_kd:
                     kd_path = nested_kd[0]
                 else:
-                    raise ValueError(f"key_datas topilmadi: {source_path}")
+                    raise ValueError(f"key_datas not found: {source_path}")
 
             tdata_root = kd_path.parent
             kd_raw = kd_path.read_bytes()
@@ -514,7 +514,7 @@ class TDataParser:
         """
         zip_path = Path(zip_path)
         if not zip_path.exists():
-            raise FileNotFoundError(f"Arxiv fayli topilmadi: {zip_path}")
+            raise FileNotFoundError(f"Archive file not found: {zip_path}")
 
         session_files = {}
         kd2_info = None
@@ -523,7 +523,7 @@ class TDataParser:
             namelist = zf.namelist()
             kd_files = [n for n in namelist if n.endswith("key_datas")]
             if not kd_files:
-                raise ValueError("Arxiv ichida key_datas fayli topilmadi!")
+                raise ValueError("key_datas file not found in archive!")
 
             kd_raw = zf.read(kd_files[0])
             kd2_info = cls.parse_kd2(kd_raw)

@@ -69,7 +69,7 @@ class KD2Cracker:
     def from_source(cls, source: Union[str, Path], max_workers: Optional[int] = None) -> "KD2Cracker":
         source_path = Path(source)
         if not source_path.exists():
-            raise FileNotFoundError(f"Manba topilmadi: {source_path}")
+            raise FileNotFoundError(f"Source not found: {source_path}")
         kd2_info, _ = TDataParser.load_from_source(source_path)
         return cls(kd2_info, max_workers=max_workers)
 
@@ -85,7 +85,7 @@ class KD2Cracker:
             out_dir.mkdir(parents=True, exist_ok=True)
         total = len(candidates)
         if total == 0:
-            print("⚠️ Tekshirish uchun kombinatsiyalar ro'yxati bo'sh!")
+            print("⚠️ Candidate combinations list is empty!")
             return None
 
         # Quick check: test empty passcode ("") first in case account has no local passcode
@@ -100,8 +100,8 @@ class KD2Cracker:
         )
         if ok_empty and lk_empty is not None:
             print("\n" + "=" * 65)
-            print("🎉 AKKAUNTDA LOKAL PAROL O'RNATILMAGAN (Bo'sh parol '')!")
-            print(f"Master LocalKey: {lk_empty[:16].hex()}... ({len(lk_empty)} bayt)")
+            print("🎉 ACCOUNT HAS NO LOCAL PASSCODE (Empty passcode '')!")
+            print(f"Master LocalKey: {lk_empty[:16].hex()}... ({len(lk_empty)} bytes)")
             print("=" * 65 + "\n")
             if save_artifacts:
                 (out_dir / "found_passcode.txt").write_text("\n", encoding="utf-8")
@@ -116,15 +116,15 @@ class KD2Cracker:
         kdf_name = "KD2 Argon2id" if self.kd2.kdf_id != 0 else "PBKDF2-HMAC-SHA512"
         print("=" * 65)
         print(f"Telegram {kdf_name} Multi-Core Cracker")
-        print(f"Tizim               : {specs['os']} {specs['release']} ({specs['arch']})")
-        print(f"Jami kombinatsiyalar: {total:,}")
-        print(f"Hardware tahlili    : {self.hardware_reason}")
-        print(f"Paket hajmi (batch) : {batch_size} ta har bir topshiriqqa")
+        print(f"System              : {specs['os']} {specs['release']} ({specs['arch']})")
+        print(f"Total candidates    : {total:,}")
+        print(f"Hardware analysis   : {self.hardware_reason}")
+        print(f"Batch size          : {batch_size} per task")
         if self.kd2.kdf_id != 0:
-            print(f"Argon2 xotira sarfi : {self.kd2.memory_cost // 1024} MB per attempt")
-            print(f"Argon2 qadamlari    : {self.kd2.time_cost} iteratsiya")
+            print(f"Argon2 memory cost  : {self.kd2.memory_cost // 1024} MB per attempt")
+            print(f"Argon2 iterations   : {self.kd2.time_cost} iterations")
         else:
-            print(f"PBKDF2 qadamlari    : {self.kd2.time_cost:,} iteratsiya")
+            print(f"PBKDF2 iterations   : {self.kd2.time_cost:,} iterations")
         print("=" * 65)
 
         t0 = time.time()
@@ -160,15 +160,15 @@ class KD2Cracker:
                     pwd, local_key = result
                     dt = time.time() - t0
                     print("\n" + "=" * 65)
-                    print(f"🎉🎉🎉 PAROL TOPILDI: '{pwd}' 🎉🎉🎉")
-                    print(f"Master LocalKey: {local_key[:16].hex()}... ({len(local_key)} bayt)")
-                    print(f"Sarflangan vaqt: {dt:.1f} soniya ({done_count}/{total})")
+                    print(f"🎉🎉🎉 PASSCODE FOUND: '{pwd}' 🎉🎉🎉")
+                    print(f"Master LocalKey: {local_key[:16].hex()}... ({len(local_key)} bytes)")
+                    print(f"Elapsed time: {dt:.1f} seconds ({done_count}/{total})")
                     print("=" * 65 + "\n")
 
                     if save_artifacts:
                         (out_dir / "found_passcode.txt").write_text(f"{pwd}\n", encoding="utf-8")
                         (out_dir / "found_local_key.bin").write_bytes(local_key)
-                        print(f"✅ Natijalar saqlandi: {out_dir / 'found_passcode.txt'}")
+                        print(f"✅ Results saved to: {out_dir / 'found_passcode.txt'}")
 
                     # Cancel remaining tasks
                     for f in future_to_batch:
@@ -181,27 +181,27 @@ class KD2Cracker:
                     speed = done_count / dt if dt > 0 else 0
                     percent = (done_count / total) * 100
                     rem_sec = (total - done_count) / speed if speed > 0 else 0
-                    print(f"Progress: {done_count:,}/{total:,} ({percent:.1f}%) | Tezlik: {speed:.1f} urinish/s | Qoldi: ~{rem_sec/60:.1f} daqiqa")
+                    print(f"Progress: {done_count:,}/{total:,} ({percent:.1f}%) | Speed: {speed:.1f} attempts/s | Remaining: ~{rem_sec/60:.1f} min")
                     last_report_time = now
 
         if found_result is None:
             dt = time.time() - t0
-            print(f"\n❌ Berilgan barcha {total:,} ta kombinatsiya tekshirildi, lekin mos parol topilmadi.")
-            print(f"Jami sarflangan vaqt: {dt:.1f} soniya.")
+            print(f"\n❌ All {total:,} combinations were checked, but no matching passcode was found.")
+            print(f"Total elapsed time: {dt:.1f} seconds.")
 
         return found_result
 
 
 def main():
     parser = argparse.ArgumentParser(description="Telegram KD2 & PBKDF2 Passcode Cracker")
-    parser.add_argument("--source", "-s", required=True, help="Telegram backup ZIP fayli yoki tdata papkasi")
-    parser.add_argument("--mode", "-m", choices=["pin4", "pin6", "range", "wordlist"], default="pin4", help="Qidiruv rejimi (standart: pin4)")
-    parser.add_argument("--start", type=int, default=0, help="Range rejimi uchun boshlang'ich son")
-    parser.add_argument("--end", type=int, default=9999, help="Range rejimi uchun tugash soni")
-    parser.add_argument("--digits", "-d", type=int, default=None, help="Range rejimi uchun raqamlar uzunligi (masalan: 4 yoki 6)")
-    parser.add_argument("--wordlist", "-w", type=str, help="So'zlar ro'yxati fayli (.txt)")
-    parser.add_argument("--threads", "-t", type=int, default=None, help="CPU yadrolari soni (standart: avtomatik)")
-    parser.add_argument("--output", "-o", type=str, default=".", help="Natijalarni saqlash papkasi")
+    parser.add_argument("--source", "-s", required=True, help="Telegram backup ZIP file or tdata directory")
+    parser.add_argument("--mode", "-m", choices=["pin4", "pin6", "range", "wordlist"], default="pin4", help="Search mode (default: pin4)")
+    parser.add_argument("--start", type=int, default=0, help="Start number for range mode")
+    parser.add_argument("--end", type=int, default=9999, help="End number for range mode")
+    parser.add_argument("--digits", "-d", type=int, default=None, help="Digit padding width for range mode (e.g., 4 or 6)")
+    parser.add_argument("--wordlist", "-w", type=str, help="Wordlist text file path (.txt)")
+    parser.add_argument("--threads", "-t", type=int, default=None, help="CPU worker count (default: auto)")
+    parser.add_argument("--output", "-o", type=str, default=".", help="Directory to save recovered passcode and key")
 
     args = parser.parse_args()
 
@@ -215,7 +215,7 @@ def main():
         candidates = [f"{i:0{width}d}" for i in range(args.start, args.end + 1)]
     elif args.mode == "wordlist":
         if not args.wordlist or not Path(args.wordlist).exists():
-            print(f"❌ Wordlist fayli topilmadi: {args.wordlist}")
+            print(f"❌ Wordlist file not found: {args.wordlist}")
             sys.exit(1)
         candidates = Path(args.wordlist).read_text(encoding="utf-8", errors="ignore").splitlines()
 

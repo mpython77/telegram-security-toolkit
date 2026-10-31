@@ -34,7 +34,7 @@ class TestParserAndExtractor(unittest.TestCase):
 
     def test_tdf_tamper_detection(self):
         if not BACKUP_2.exists():
-            self.skipTest(f"{BACKUP_2.name} topilmadi")
+            self.skipTest(f"{BACKUP_2.name} not found")
 
         _, session_files = TDataParser.load_from_zip(BACKUP_2)
         raw_s = list(session_files.values())[0]
@@ -71,7 +71,7 @@ class TestParserAndExtractor(unittest.TestCase):
     def test_tar_xz_universal_loader(self):
         """Tests loading tdata from a .tar.xz archive via TDataParser.load_from_source."""
         if not UNENCRYPTED_TDATA.exists():
-            self.skipTest(f"{UNENCRYPTED_TDATA.name} topilmadi")
+            self.skipTest(f"{UNENCRYPTED_TDATA.name} not found")
 
         tmp = Path(tempfile.mkdtemp(prefix="tlgr_tarxz_"))
         try:
@@ -87,7 +87,7 @@ class TestParserAndExtractor(unittest.TestCase):
 
     def test_backup_1_passcode_and_keys(self):
         if not BACKUP_1.exists():
-            self.skipTest(f"{BACKUP_1.name} topilmadi")
+            self.skipTest(f"{BACKUP_1.name} not found")
 
         kd2, session_files = TDataParser.load_from_zip(BACKUP_1)
         self.assertEqual(kd2.kdf_id, 1)
@@ -120,7 +120,7 @@ class TestParserAndExtractor(unittest.TestCase):
 
     def test_backup_2_passcode_and_keys(self):
         if not BACKUP_2.exists():
-            self.skipTest(f"{BACKUP_2.name} topilmadi")
+            self.skipTest(f"{BACKUP_2.name} not found")
 
         kd2, session_files = TDataParser.load_from_zip(BACKUP_2)
         ok, local_key = verify_kd2_candidate("9562", kd2.salt, kd2.key128, kd2.ciphertext, kdf_id=kd2.kdf_id)
@@ -149,7 +149,7 @@ class TestParserAndExtractor(unittest.TestCase):
 
     def test_unencrypted_pbkdf2_tdata(self):
         if not UNENCRYPTED_TDATA.exists():
-            self.skipTest(f"{UNENCRYPTED_TDATA.name} topilmadi")
+            self.skipTest(f"{UNENCRYPTED_TDATA.name} not found")
 
         kd2, session_files = TDataParser.load_from_dir(UNENCRYPTED_TDATA)
         self.assertEqual(kd2.kdf_id, 0)
@@ -185,7 +185,7 @@ class TestParserAndExtractor(unittest.TestCase):
 
     def test_parse_accounts_metadata(self):
         if not BACKUP_1.exists():
-            self.skipTest(f"{BACKUP_1.name} topilmadi")
+            self.skipTest(f"{BACKUP_1.name} not found")
 
         kd2, _ = TDataParser.load_from_zip(BACKUP_1)
         ok, local_key = verify_kd2_candidate("1111", kd2.salt, kd2.key128, kd2.ciphertext, kdf_id=kd2.kdf_id)
