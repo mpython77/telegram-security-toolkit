@@ -32,9 +32,6 @@ from core.hardware import get_system_specs, get_optimal_worker_count, set_proces
 
 # Top-level worker function for multiprocessing pickling
 def _worker_check_batch(args: Tuple[List[str], bytes, bytes, bytes, int, int, int]) -> Optional[Tuple[str, bytes]]:
-    # Set low process priority so the OS UI and other tasks remain completely smooth
-    set_process_low_priority()
-
     batch, salt, key128, ciphertext, time_c, mem_c, kdf_id = args
     for candidate in batch:
         ok, local_key = verify_kd2_candidate(
@@ -108,9 +105,10 @@ class KD2Cracker:
                 (out_dir / "found_local_key.bin").write_bytes(lk_empty)
             return "", lk_empty
 
-        # Auto-compute dynamic batch size based on candidates and workers
+        # Auto-compute adaptive batch size based on KDF cost, candidates, and worker threads
         if batch_size is None or batch_size <= 0:
-            batch_size = max(1, min(50, total // (self.max_workers * 4)))
+            max_batch = 5 if self.kd2.kdf_id != 0 else 25
+            batch_size = max(1, min(max_batch, total // (self.max_workers * 4)))
 
         specs = get_system_specs()
         kdf_name = "KD2 Argon2id" if self.kd2.kdf_id != 0 else "PBKDF2-HMAC-SHA512"
@@ -145,7 +143,10 @@ class KD2Cracker:
         done_count = 0
         found_result = None
 
-        with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
+        with ProcessPoolExecutor(
+            max_workers=self.max_workers,
+            initializer=set_process_low_priority,
+        ) as executor:
             future_to_batch = {executor.submit(_worker_check_batch, arg): arg[0] for arg in task_args}
 
             last_report_time = time.time()

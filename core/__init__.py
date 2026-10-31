@@ -24,7 +24,12 @@ from .crypto import (
 from .tdata_parser import TDataParser, KD2Info
 from .dc_extractor import DCExtractor, MtpSessionInfo, OfflineUserProfile
 from .session_manager import SessionManager
-from .hardware import get_system_specs, get_optimal_worker_count, set_process_low_priority
+from .hardware import (
+    get_cpu_topology,
+    get_system_specs,
+    get_optimal_worker_count,
+    set_process_low_priority,
+)
 
 __all__ = [
     "prepare_aes_oldmtp",
@@ -41,6 +46,7 @@ __all__ = [
     "MtpSessionInfo",
     "OfflineUserProfile",
     "SessionManager",
+    "get_cpu_topology",
     "get_system_specs",
     "get_optimal_worker_count",
     "set_process_low_priority",

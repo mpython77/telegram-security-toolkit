@@ -1,13 +1,78 @@
 """
-Hardware Detection & Resource Scaling Engine
-Dynamically tunes multithreading and memory allocation across various CPU architectures
-(Intel P/E-cores, AMD Ryzen/Threadripper, low-RAM and high-RAM systems).
+Hardware Detection & Adaptive Resource Scaling Engine
+Dynamically detects physical CPU cores, logical threads (SMT/Hyper-Threading),
+and available physical RAM across Windows, Linux, and macOS to maximize
+multi-core cracking throughput without causing OOM or UI lag.
 """
 
 import os
 import sys
 import platform
 from typing import Dict, Any, Tuple, Optional
+
+# Python's ProcessPoolExecutor on Windows is bounded by WaitForMultipleObjects (61 handles max)
+MAX_WINDOWS_POOL_WORKERS = 61
+
+
+def get_cpu_topology() -> Tuple[int, int]:
+    """
+    Detects (physical_cores, logical_threads) natively without external dependencies.
+    Works across Windows (Win32 GetLogicalProcessorInformationEx), Linux (/proc/cpuinfo),
+    and macOS (sysctl).
+    """
+    logical_threads = os.cpu_count() or 4
+    physical_cores = 0
+
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            from ctypes import wintypes
+
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            length = wintypes.DWORD(0)
+            # 0 = RelationProcessorCore
+            kernel32.GetLogicalProcessorInformationEx(0, None, ctypes.byref(length))
+            if length.value > 0:
+                buf = (ctypes.c_byte * length.value)()
+                if kernel32.GetLogicalProcessorInformationEx(0, buf, ctypes.byref(length)):
+                    raw = bytes(buf)
+                    offset = 0
+                    count = 0
+                    while offset + 8 <= len(raw):
+                        rel = int.from_bytes(raw[offset : offset + 4], "little")
+                        size = int.from_bytes(raw[offset + 4 : offset + 8], "little")
+                        if size <= 0:
+                            break
+                        if rel == 0:
+                            count += 1
+                        offset += size
+                    if count > 0:
+                        physical_cores = count
+
+        elif sys.platform.startswith("linux"):
+            core_ids = set()
+            phys_id = "0"
+            with open("/proc/cpuinfo", "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    if line.startswith("physical id"):
+                        phys_id = line.split(":", 1)[1].strip()
+                    elif line.startswith("core id"):
+                        cid = line.split(":", 1)[1].strip()
+                        core_ids.add((phys_id, cid))
+            if core_ids:
+                physical_cores = len(core_ids)
+
+        elif sys.platform == "darwin":
+            import subprocess
+            out = subprocess.check_output(["sysctl", "-n", "hw.physicalcpu"]).strip()
+            physical_cores = int(out)
+    except Exception:
+        pass
+
+    if physical_cores <= 0 or physical_cores > logical_threads:
+        physical_cores = max(1, logical_threads // 2) if logical_threads > 1 else 1
+
+    return physical_cores, logical_threads
 
 
 def get_available_ram_mb() -> float:
@@ -50,15 +115,13 @@ def get_available_ram_mb() -> float:
                         return kb / 1024.0
 
         elif sys.platform == "darwin":
-            # macOS fallback
             import subprocess
             out = subprocess.check_output(["sysctl", "-n", "hw.memsize"]).strip()
             total_mb = int(out) / (1024 * 1024)
-            return total_mb * 0.5  # estimate 50% available
+            return total_mb * 0.5
     except Exception:
         pass
 
-    # Universal fallback: assume 2048 MB available
     return 2048.0
 
 
@@ -107,9 +170,9 @@ def get_total_ram_mb() -> float:
 
 def get_system_specs() -> Dict[str, Any]:
     """
-    Gathers detailed hardware specifications.
+    Gathers detailed hardware specifications (OS, physical cores, logical threads, RAM).
     """
-    cpu_threads = os.cpu_count() or 4
+    cpu_cores, cpu_threads = get_cpu_topology()
     total_ram = get_total_ram_mb()
     avail_ram = get_available_ram_mb()
 
@@ -117,6 +180,7 @@ def get_system_specs() -> Dict[str, Any]:
         "os": platform.system(),
         "release": platform.release(),
         "arch": platform.machine(),
+        "cpu_cores": cpu_cores,
         "cpu_threads": cpu_threads,
         "total_ram_mb": round(total_ram, 1),
         "avail_ram_mb": round(avail_ram, 1),
@@ -126,42 +190,58 @@ def get_system_specs() -> Dict[str, Any]:
 def get_optimal_worker_count(
     memory_per_worker_mb: int = 96,
     user_override: Optional[int] = None,
+    detected_cores: Optional[int] = None,
+    detected_threads: Optional[int] = None,
+    detected_avail_ram_mb: Optional[float] = None,
 ) -> Tuple[int, str]:
     """
-    Calculates the safest and fastest worker count.
-    Argon2id (64MB) + Python worker memory (~32MB) = ~96MB per worker.
-    Ensures the system never freezes or hits out-of-memory swapping.
+    Calculates the fastest and safest worker count for any CPU topology
+    (e.g., 4C/8T, 8C/8T, 8C/16T, 20C/40T, 32C/64T).
+    - Uses 100% of logical threads when RAM permits (since workers run at BELOW_NORMAL priority,
+      the OS scheduler keeps UI responsiveness smooth even at 100% thread utilization).
+    - Caps workers by available physical RAM (Argon2id 64MB + ~32MB worker overhead = ~96MB/worker)
+      to prevent OOM or disk swap thrashing.
+    - Respects Windows ProcessPoolExecutor 61-worker handle limit on win32.
     """
-    cpu_threads = os.cpu_count() or 4
-    avail_ram = get_available_ram_mb()
+    if detected_cores is not None and detected_threads is not None:
+        cpu_cores, cpu_threads = detected_cores, detected_threads
+    else:
+        cpu_cores, cpu_threads = get_cpu_topology()
+
+    avail_ram = detected_avail_ram_mb if detected_avail_ram_mb is not None else get_available_ram_mb()
+    platform_cap = MAX_WINDOWS_POOL_WORKERS if sys.platform == "win32" else 512
 
     if user_override is not None and user_override > 0:
-        return user_override, f"User manually specified: {user_override}"
+        capped = min(user_override, platform_cap)
+        return capped, f"User manually specified: {capped} (CPU: {cpu_cores}C/{cpu_threads}T)"
 
-    # Reserve 512 MB for OS and other background apps
+    # Reserve 512 MB for OS and foreground applications
     usable_ram = max(256.0, avail_ram - 512.0)
-    ram_limit_workers = max(1, int(usable_ram // memory_per_worker_mb))
+    ram_limit_workers = max(1, int(usable_ram // max(1, memory_per_worker_mb)))
 
-    # CPU thread cap: on systems with > 4 cores, leave 1 thread free for OS UI responsiveness
-    if cpu_threads > 4:
-        cpu_optimal = cpu_threads - 1
-    else:
-        cpu_optimal = cpu_threads
-
-    optimal = min(cpu_optimal, ram_limit_workers)
+    # Utilize 100% of logical CPU threads up to RAM and OS handle limits
+    optimal = min(cpu_threads, ram_limit_workers, platform_cap)
     optimal = max(1, optimal)
 
+    if optimal == cpu_threads:
+        mode_note = "100% max CPU power"
+    elif optimal == ram_limit_workers:
+        mode_note = "RAM-bounded safe limit"
+    else:
+        mode_note = "OS pool handle limit"
+
     reason = (
-        f"CPU: {cpu_threads} threads, Available RAM: {avail_ram:.0f} MB -> "
-        f"Optimal safe workers: {optimal}"
+        f"CPU: {cpu_cores} cores / {cpu_threads} threads, Available RAM: {avail_ram:.0f} MB -> "
+        f"Optimal workers: {optimal}/{cpu_threads} ({mode_note})"
     )
     return optimal, reason
 
 
 def set_process_low_priority():
     """
-    Lowers the priority of the current worker process so the computer's UI,
-    mouse and apps remain completely smooth and lag-free during heavy brute-forcing.
+    Lowers the priority of the current worker process (BELOW_NORMAL_PRIORITY_CLASS on Windows,
+    nice(10) on Linux/macOS) so 100% of CPU threads can be utilized for cracking while
+    the OS automatically prioritizes mouse, UI, and foreground tasks with zero lag.
     """
     try:
         if sys.platform == "win32":
