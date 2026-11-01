@@ -126,10 +126,10 @@ python main.py --harvest -p "C:\Custom\Telegram\tdata" -o .
 Inspects any `.zip`, `.tar.xz`, `tdata` folder, or `.session` file without connecting to Telegram servers:
 ```bash
 # Analyze unencrypted or locked archive:
-python main.py --analyze -s "TG_Backup_Windows_....zip"
+python main.py --analyze -s backup.zip
 
 # Analyze with known passcode and export JSON report:
-python main.py --analyze -s "TG_Backup_Windows_....zip" -p 1111 -j audit_report.json
+python main.py --analyze -s backup.zip -p 1234 -j audit_report.json
 ```
 
 ---
@@ -138,16 +138,16 @@ python main.py --analyze -s "TG_Backup_Windows_....zip" -p 1111 -j audit_report.
 Brute-forces the master `LocalKey` across all available CPU threads:
 ```bash
 # 4-digit numeric PINs (0000-9999):
-python main.py --crack -s "TG_Backup_Windows_....zip" --mode pin4
+python main.py --crack -s backup.zip --mode pin4
 
 # 6-digit numeric PINs (000000-999999):
-python main.py --crack -s "TG_Backup_Windows_....zip" --mode pin6
+python main.py --crack -s backup.zip --mode pin6
 
 # Custom numerical range:
-python main.py --crack -s "TG_Backup_Windows_....zip" --mode range --start 1000 --end 2000
+python main.py --crack -s backup.zip --mode range --start 1000 --end 2000
 
 # Dictionary wordlist:
-python main.py --crack -s "TG_Backup_Windows_....zip" --mode wordlist -w passwords.txt
+python main.py --crack -s backup.zip --mode wordlist -w passwords.txt
 ```
 Recovered passcodes and keys are saved to `found_passcode.txt` and `found_local_key.bin`.
 
@@ -157,13 +157,13 @@ Recovered passcodes and keys are saved to `found_passcode.txt` and `found_local_
 Extracts MTProto authentication keys and profile details into Telethon `.session` SQLite files:
 ```bash
 # Extract the primary account:
-python main.py --extract -s "TG_Backup_Windows_....zip" -p 1111 -o account.session
+python main.py --extract -s backup.zip -p 1234 -o account.session
 
 # Extract ALL active accounts into individual .session files:
-python main.py --extract -s "TG_Backup_Windows_....zip" -p 1111 --all -o ./sessions/
+python main.py --extract -s backup.zip -p 1234 --all -o ./sessions/
 
 # Extract a specific account index (e.g., account index 1):
-python main.py --extract -s "TG_Backup_Windows_....zip" -p 1111 --account-index 1
+python main.py --extract -s backup.zip -p 1234 --account-index 1
 ```
 
 ---
@@ -184,10 +184,10 @@ python main.py --convert -s acc1.session acc2.session -o "C:\Telegram_Multi\tdat
 Restores an encrypted archive or directory to a target `tdata` folder, unlocking the local passcode in-place while preserving all 4 DC keys (`[1, 2, 4, 5]`), maps, drafts, and local cache:
 ```bash
 # Restore with known passcode:
-python main.py --restore -s "TG_Backup_Windows_....zip" -t "C:\Telegram_Portable\tdata" -p 1111
+python main.py --restore -s backup.zip -t "C:\Telegram_Portable\tdata" -p 1234
 
 # Restore with automated 4-digit PIN discovery:
-python main.py --restore -s "TG_Backup_Windows_....zip" -t "C:\Telegram_Portable\tdata" --auto-crack
+python main.py --restore -s backup.zip -t "C:\Telegram_Portable\tdata" --auto-crack
 ```
 
 ---

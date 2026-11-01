@@ -3,6 +3,7 @@ Integration tests for TDataParser and DCExtractor
 Covers KD2 (Argon2id), Standard/Legacy PBKDF2 (unencrypted & passcode),
 TDF$ MD5 tamper detection, Zip-Slip defense, .tar.xz loading,
 multi-block TLV maps parsing, and MTProto SHA-1 / auth_key_id verification.
+All tests use 100% self-contained synthetic fixtures (zero personal data).
 """
 
 import io
@@ -23,25 +24,32 @@ if str(TOOLKIT_ROOT) not in sys.path:
 from core.tdata_parser import TDataParser
 from core.crypto import verify_kd2_candidate, encrypt_local_block
 from core.dc_extractor import DCExtractor
-
-WORKSPACE_DIR = TOOLKIT_ROOT.parent
-BACKUP_1 = WORKSPACE_DIR / "TG_Backup_Windows_2026-10-27_22-56-03.zip"
-BACKUP_2 = WORKSPACE_DIR / "TG_Backup_Windows_2026-10-27_11-37-16 (3).zip"
-UNENCRYPTED_TDATA = WORKSPACE_DIR / "tdata_account_faxriddinovich"
+from tests.synthetic_fixtures import (
+    create_synthetic_tdata,
+    create_synthetic_zip_backup,
+)
 
 
 class TestParserAndExtractor(unittest.TestCase):
 
-    def test_tdf_tamper_detection(self):
-        if not BACKUP_2.exists():
-            self.skipTest(f"{BACKUP_2.name} not found")
+    def setUp(self):
+        self.test_dir = Path(tempfile.mkdtemp(prefix="tlgr_test_pe_"))
 
-        _, session_files = TDataParser.load_from_zip(BACKUP_2)
+    def tearDown(self):
+        if self.test_dir.exists():
+            shutil.rmtree(self.test_dir, ignore_errors=True)
+
+    def test_tdf_tamper_detection(self):
+        """Tests TDF$ MD5 integrity and tamper detection."""
+        synth_zip = self.test_dir / "tamper_test.zip"
+        create_synthetic_zip_backup(synth_zip, passcode="1234")
+
+        _, session_files = TDataParser.load_from_zip(synth_zip)
         raw_s = list(session_files.values())[0]
 
         # Valid TDF should pass
         payload = TDataParser.read_tdf(raw_s)
-        self.assertGreater(len(payload), 100)
+        self.assertGreater(len(payload), 50)
 
         # Flip 1 bit in payload -> MD5 check must raise ValueError
         tampered = bytearray(raw_s)
@@ -56,49 +64,48 @@ class TestParserAndExtractor(unittest.TestCase):
 
     def test_zip_slip_path_traversal_defense(self):
         """Ensures safe_extract_zip blocks archives containing '../' path traversal."""
-        tmp = Path(tempfile.mkdtemp(prefix="tlgr_zipslip_"))
-        try:
-            malicious_zip = tmp / "malicious.zip"
-            with zipfile.ZipFile(malicious_zip, "w") as zf:
-                zf.writestr("../../escaped_evil.txt", b"evil")
+        malicious_zip = self.test_dir / "malicious.zip"
+        with zipfile.ZipFile(malicious_zip, "w") as zf:
+            zf.writestr("../../escaped_evil.txt", b"evil")
 
-            extract_target = tmp / "out"
-            with self.assertRaises(ValueError):
-                TDataParser.safe_extract_zip(malicious_zip, extract_target)
-        finally:
-            shutil.rmtree(tmp, ignore_errors=True)
+        extract_target = self.test_dir / "out"
+        with self.assertRaises(ValueError):
+            TDataParser.safe_extract_zip(malicious_zip, extract_target)
 
     def test_tar_xz_universal_loader(self):
         """Tests loading tdata from a .tar.xz archive via TDataParser.load_from_source."""
-        if not UNENCRYPTED_TDATA.exists():
-            self.skipTest(f"{UNENCRYPTED_TDATA.name} not found")
+        unenc_dir = self.test_dir / "unencrypted_tdata"
+        create_synthetic_tdata(unenc_dir, passcode=None, user_id=300000003)
 
-        tmp = Path(tempfile.mkdtemp(prefix="tlgr_tarxz_"))
-        try:
-            tar_xz_path = tmp / "backup_test.tar.xz"
-            with tarfile.open(tar_xz_path, "w:xz") as tar:
-                tar.add(UNENCRYPTED_TDATA, arcname="tdata")
+        tar_xz_path = self.test_dir / "backup_test.tar.xz"
+        with tarfile.open(tar_xz_path, "w:xz") as tar:
+            tar.add(unenc_dir, arcname="tdata")
 
-            kd2, session_files = TDataParser.load_from_source(tar_xz_path)
-            self.assertEqual(kd2.kdf_id, 0)
-            self.assertGreaterEqual(len(session_files), 1)
-        finally:
-            shutil.rmtree(tmp, ignore_errors=True)
+        kd2, session_files = TDataParser.load_from_source(tar_xz_path)
+        self.assertEqual(kd2.kdf_id, 0)
+        self.assertGreaterEqual(len(session_files), 1)
 
-    def test_backup_1_passcode_and_keys(self):
-        if not BACKUP_1.exists():
-            self.skipTest(f"{BACKUP_1.name} not found")
+    def test_synthetic_kd2_passcode_and_keys(self):
+        """Tests KD2 Argon2id parsing, passcode verification, and session info extraction."""
+        synth_zip = self.test_dir / "kd2_test.zip"
+        expected_lk, expected_ak, _ = create_synthetic_zip_backup(
+            synth_zip,
+            passcode="1234",
+            user_id=100000001,
+            main_dc_id=2,
+            dc_ids=[1, 2, 4, 5],
+        )
 
-        kd2, session_files = TDataParser.load_from_zip(BACKUP_1)
+        kd2, session_files = TDataParser.load_from_zip(synth_zip)
         self.assertEqual(kd2.kdf_id, 1)
         self.assertEqual(kd2.memory_cost, 65536)
         self.assertEqual(kd2.time_cost, 8)
         self.assertEqual(len(kd2.salt), 32)
 
-        ok, local_key = verify_kd2_candidate("1111", kd2.salt, kd2.key128, kd2.ciphertext, kdf_id=kd2.kdf_id)
+        ok, local_key = verify_kd2_candidate("1234", kd2.salt, kd2.key128, kd2.ciphertext, kdf_id=kd2.kdf_id)
         self.assertTrue(ok)
         self.assertIsNotNone(local_key)
-        self.assertGreaterEqual(len(local_key), 256)
+        self.assertEqual(local_key, expected_lk)
 
         valid_found = False
         for s_name, raw in session_files.items():
@@ -106,7 +113,7 @@ class TestParserAndExtractor(unittest.TestCase):
                 info = DCExtractor.extract_session_info(raw, local_key)
                 if info.dc_keys:
                     valid_found = True
-                    self.assertEqual(info.user_id, 1684305595)
+                    self.assertEqual(info.user_id, 100000001)
                     self.assertEqual(info.main_dc_id, 2)
                     self.assertIn(2, info.dc_keys)
                     self.assertEqual(len(info.dc_keys[2]), 256)
@@ -118,53 +125,46 @@ class TestParserAndExtractor(unittest.TestCase):
                 pass
         self.assertTrue(valid_found)
 
-    def test_backup_2_passcode_and_keys(self):
-        if not BACKUP_2.exists():
-            self.skipTest(f"{BACKUP_2.name} not found")
+    def test_synthetic_kd2_wrong_key_and_rejection(self):
+        """Tests that invalid passcode and corrupt keys are strictly rejected."""
+        synth_zip = self.test_dir / "kd2_rejection.zip"
+        create_synthetic_zip_backup(synth_zip, passcode="5678", user_id=200000002)
 
-        kd2, session_files = TDataParser.load_from_zip(BACKUP_2)
-        ok, local_key = verify_kd2_candidate("9562", kd2.salt, kd2.key128, kd2.ciphertext, kdf_id=kd2.kdf_id)
-        self.assertTrue(ok)
-        self.assertIsNotNone(local_key)
-        self.assertGreaterEqual(len(local_key), 256)
+        kd2, session_files = TDataParser.load_from_zip(synth_zip)
+        # Wrong passcode must fail
+        ok_wrong, _ = verify_kd2_candidate("9999", kd2.salt, kd2.key128, kd2.ciphertext, kdf_id=kd2.kdf_id)
+        self.assertFalse(ok_wrong)
 
-        valid_found = False
-        for s_name, raw in session_files.items():
-            try:
-                info = DCExtractor.extract_session_info(raw, local_key)
-                if info.dc_keys:
-                    valid_found = True
-                    self.assertEqual(info.user_id, 6769431746)
-                    self.assertEqual(info.main_dc_id, 2)
-                    self.assertIn(2, info.dc_keys)
-                    self.assertEqual(len(info.dc_keys[2]), 256)
-            except Exception:
-                pass
-        self.assertTrue(valid_found)
+        # Correct passcode must succeed
+        ok_correct, local_key = verify_kd2_candidate("5678", kd2.salt, kd2.key128, kd2.ciphertext, kdf_id=kd2.kdf_id)
+        self.assertTrue(ok_correct)
 
+        # Decrypting session with completely wrong key must raise ValueError
         wrong_key = os.urandom(256)
         raw_s = list(session_files.values())[0]
         with self.assertRaises(ValueError):
             DCExtractor.extract_session_info(raw_s, wrong_key)
 
     def test_unencrypted_pbkdf2_tdata(self):
-        if not UNENCRYPTED_TDATA.exists():
-            self.skipTest(f"{UNENCRYPTED_TDATA.name} not found")
+        """Tests unencrypted (passcode-free) tdata parsing."""
+        unenc_dir = self.test_dir / "unencrypted_direct"
+        expected_lk, _, _ = create_synthetic_tdata(unenc_dir, passcode=None, user_id=400000004)
 
-        kd2, session_files = TDataParser.load_from_dir(UNENCRYPTED_TDATA)
+        kd2, session_files = TDataParser.load_from_dir(unenc_dir)
         self.assertEqual(kd2.kdf_id, 0)
 
         ok, local_key = verify_kd2_candidate("", kd2.salt, kd2.key128, kd2.ciphertext, kdf_id=kd2.kdf_id)
         self.assertTrue(ok)
-        self.assertIsNotNone(local_key)
+        self.assertEqual(local_key, expected_lk)
 
         raw_s = list(session_files.values())[0]
         info = DCExtractor.extract_session_info(raw_s, local_key)
-        self.assertEqual(info.user_id, 6769431746)
+        self.assertEqual(info.user_id, 400000004)
         self.assertEqual(info.main_dc_id, 2)
         self.assertIn(2, info.dc_keys)
 
     def test_compute_account_filename_and_16_accounts(self):
+        """Tests deterministic account folder name hashing up to 16 accounts."""
         f0, s0 = TDataParser.compute_account_filename(0)
         self.assertEqual(f0, "D877F783D5D3EF8C")
         self.assertEqual(s0, "D877F783D5D3EF8Cs")
@@ -184,14 +184,15 @@ class TestParserAndExtractor(unittest.TestCase):
         self.assertEqual(idx_map["F8806DD0C461824F"], 2)
 
     def test_parse_accounts_metadata(self):
-        if not BACKUP_1.exists():
-            self.skipTest(f"{BACKUP_1.name} not found")
+        """Tests parsing account index metadata from key_datas."""
+        synth_zip = self.test_dir / "meta_test.zip"
+        create_synthetic_zip_backup(synth_zip, passcode="1234", account_index=0)
 
-        kd2, _ = TDataParser.load_from_zip(BACKUP_1)
-        ok, local_key = verify_kd2_candidate("1111", kd2.salt, kd2.key128, kd2.ciphertext, kdf_id=kd2.kdf_id)
+        kd2, _ = TDataParser.load_from_zip(synth_zip)
+        ok, local_key = verify_kd2_candidate("1234", kd2.salt, kd2.key128, kd2.ciphertext, kdf_id=kd2.kdf_id)
         self.assertTrue(ok)
 
-        with zipfile.ZipFile(BACKUP_1) as zf:
+        with zipfile.ZipFile(synth_zip) as zf:
             kd_name = [n for n in zf.namelist() if n.endswith("key_datas")][0]
             kd_raw = zf.read(kd_name)
 
@@ -230,35 +231,31 @@ class TestParserAndExtractor(unittest.TestCase):
     def test_offline_profile_extraction_and_multiblock_maps(self):
         """
         Tests offline user profile extraction (lskSelfSerialized) from <account>/maps
-        in both Backup 1 and Backup 2, AND tests a synthetic maps stream where
+        using synthetic profiles, AND tests a synthetic maps stream where
         lskSelfSerialized is NOT the first block and has NO UserPhoto marker.
         """
-        if BACKUP_1.exists():
-            kd2_1, _ = TDataParser.load_from_zip(BACKUP_1)
-            ok1, lk1 = verify_kd2_candidate("1111", kd2_1.salt, kd2_1.key128, kd2_1.ciphertext)
-            self.assertTrue(ok1)
-            with zipfile.ZipFile(BACKUP_1) as zf:
-                maps_1 = zf.read([n for n in zf.namelist() if n.endswith("D877F783D5D3EF8C/maps")][0])
-            prof1 = DCExtractor.extract_offline_profile(maps_1, lk1)
-            self.assertIsNotNone(prof1)
-            self.assertEqual(prof1.first_name, "Möydinov")
-            self.assertEqual(prof1.last_name, "Doston")
-            self.assertEqual(prof1.phone, "998913434402")
-            self.assertEqual(prof1.username, "Foreveri7")
-            self.assertIn("Solo leveling", prof1.bio)
+        synth_zip = self.test_dir / "profile_test.zip"
+        expected_lk, _, _ = create_synthetic_zip_backup(
+            synth_zip,
+            passcode="1234",
+            user_id=500000005,
+            first_name="SyntheticFirst",
+            last_name="SyntheticLast",
+            phone="15551234567",
+            username="synth_tester",
+            bio="Automated test bio for offline extraction",
+        )
 
-        if BACKUP_2.exists():
-            kd2_2, _ = TDataParser.load_from_zip(BACKUP_2)
-            ok2, lk2 = verify_kd2_candidate("9562", kd2_2.salt, kd2_2.key128, kd2_2.ciphertext)
-            self.assertTrue(ok2)
-            with zipfile.ZipFile(BACKUP_2) as zf:
-                maps_2 = zf.read([n for n in zf.namelist() if n.endswith("D877F783D5D3EF8C/maps")][0])
-            prof2 = DCExtractor.extract_offline_profile(maps_2, lk2)
-            self.assertIsNotNone(prof2)
-            self.assertEqual(prof2.first_name, "FAXRIDDINOVICH_._")
-            self.assertEqual(prof2.phone, "998503027275")
-            self.assertEqual(prof2.username, "faxriddinovich2005")
-            self.assertTrue(len(prof2.bio) > 5)
+        with zipfile.ZipFile(synth_zip) as zf:
+            maps_raw = zf.read("tdata/D877F783D5D3EF8C/maps")
+
+        prof = DCExtractor.extract_offline_profile(maps_raw, expected_lk)
+        self.assertIsNotNone(prof)
+        self.assertEqual(prof.first_name, "SyntheticFirst")
+        self.assertEqual(prof.last_name, "SyntheticLast")
+        self.assertEqual(prof.phone, "15551234567")
+        self.assertEqual(prof.username, "synth_tester")
+        self.assertEqual(prof.bio, "Automated test bio for offline extraction")
 
         # Synthetic multi-block maps test:
         # Block 1: lskUserSettings (9)
@@ -270,20 +267,19 @@ class TestParserAndExtractor(unittest.TestCase):
             b = s.encode("utf-16-be")
             return struct.pack(">I", len(b)) + b
 
-        # 28-byte header (peer_id + flags + no photo) + 4 QStrings + 32-byte gap + bio QString
         self_buf = (
             b"\x00" * 28
-            + qstr("Alisher")
-            + qstr("Navoiy")
-            + qstr("998901234567")
-            + qstr("navoiy_uz")
+            + qstr("Synthetic")
+            + qstr("User")
+            + qstr("15559876543")
+            + qstr("synth_user_99")
             + (b"\x00" * 32)
-            + qstr("Buyuk mutafakkir")
+            + qstr("Test offline bio")
         )
         map_stream = (
             struct.pack(">IQ", 9, 123456789)  # lskUserSettings
             + struct.pack(">IIQQQQ", 1, 2, 111, 222, 333, 444)  # lskDraft (2 drafts)
-            + struct.pack(">II", 21, len(self_buf)) + self_buf  # lskSelfSerialized at 3rd position!
+            + struct.pack(">II", 21, len(self_buf)) + self_buf  # lskSelfSerialized at 3rd position
         )
         enc_map = encrypt_local_block(map_stream, synth_key)
         maps_tdf = TDataParser.write_tdf(struct.pack(">III", 0xFFFFFFFF, 0xFFFFFFFF, len(enc_map)) + enc_map)
@@ -295,11 +291,11 @@ class TestParserAndExtractor(unittest.TestCase):
 
         synth_prof = DCExtractor.extract_offline_profile(maps_tdf, synth_key)
         self.assertIsNotNone(synth_prof)
-        self.assertEqual(synth_prof.first_name, "Alisher")
-        self.assertEqual(synth_prof.last_name, "Navoiy")
-        self.assertEqual(synth_prof.phone, "998901234567")
-        self.assertEqual(synth_prof.username, "navoiy_uz")
-        self.assertEqual(synth_prof.bio, "Buyuk mutafakkir")
+        self.assertEqual(synth_prof.first_name, "Synthetic")
+        self.assertEqual(synth_prof.last_name, "User")
+        self.assertEqual(synth_prof.phone, "15559876543")
+        self.assertEqual(synth_prof.username, "synth_user_99")
+        self.assertEqual(synth_prof.bio, "Test offline bio")
 
 
 if __name__ == "__main__":
