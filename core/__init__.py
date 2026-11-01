@@ -11,6 +11,8 @@ if sys.platform == "win32":
     except Exception:
         pass
 
+__version__ = "2.0.0"
+
 from .crypto import (
     prepare_aes_oldmtp,
     derive_kd2_wrap_key,
@@ -32,6 +34,7 @@ from .hardware import (
 )
 
 __all__ = [
+    "__version__",
     "prepare_aes_oldmtp",
     "derive_kd2_wrap_key",
     "derive_pbkdf2_wrap_key",

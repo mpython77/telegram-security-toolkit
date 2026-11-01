@@ -52,6 +52,7 @@ Usage:
   python main.py --analyze [options]     100% offline forensic audit and JSON report
   python main.py --patch                 Install Python 3.13/3.14+ & Telegram v7.x+ OpenTele patch
   python main.py --test                  Run the full automated test suite
+  python main.py --version               Display current toolkit version
 """
 
 
@@ -221,6 +222,10 @@ if __name__ == "__main__":
             run_analyzer_cli()
         elif subcmd == "--patch":
             apply_patch()
+        elif subcmd in ["-v", "--version", "version"]:
+            from core import __version__
+            print(f"telegram-security-toolkit v{__version__}")
+            sys.exit(0)
         elif subcmd == "--test":
             from tests.run_all_tests import run_suite
             sys.exit(0 if run_suite() else 1)
