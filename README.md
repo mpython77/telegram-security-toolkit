@@ -17,7 +17,7 @@ A comprehensive, production-grade toolkit for **Telegram Desktop (`tdata`)** sec
    - [Step 5: Pure-Python Session to TData Converter (`--convert`)](#step-5-pure-python-session-to-tdata-converter---convert)
    - [Step 6: In-Place Passcode Unlocker & Restorer (`--restore`)](#step-6-in-place-passcode-unlocker--restorer---restore)
    - [Step 7: Session Verification & Health Checker (`--check`)](#step-7-session-verification--health-checker---check)
-   - [Step 8: Automated Test Suite (`--test`)](#step-8-automated-test-suite---test)
+   - [Step 8: Automated Test Suite & Version Check (`--test`, `--version`)](#step-8-automated-test-suite--version-check---test---version)
 6. [Python 3.13 / 3.14+ and Telegram v7.x+ OpenTele Compatibility Patch (`--patch`)](#-python-313--314-and-telegram-v7x-opentele-compatibility-patch---patch)
 7. [Multi-Account Workflow & Telegram Portable Execution](#-multi-account-workflow--telegram-portable-execution)
 8. [Git & Operational Security Guidelines](#-git--operational-security-guidelines)
@@ -200,10 +200,14 @@ python main.py --check -s account.session
 
 ---
 
-### Step 8: Automated Test Suite (`--test`)
-Executes the full suite of **22 automated unit and end-to-end regression tests**:
+### Step 8: Automated Test Suite & Version Check (`--test`, `--version`)
+Executes the full suite of **24 automated unit and end-to-end regression tests** (using self-contained synthetic fixtures):
 ```bash
+# Run full automated test suite:
 python main.py --test
+
+# Display installed toolkit version:
+python main.py --version
 ```
 
 ---
@@ -271,7 +275,8 @@ Telegram_Security_Toolkit/
 │   ├── README.md                    # Root-cause analysis and patch documentation
 │   └── patch_opentele.py            # Automated 3-in-1 patcher
 │
-└── tests/                           # 22 automated unit and integration tests
+└── tests/                           # 24 automated unit and integration tests
+    ├── synthetic_fixtures.py        # Self-contained synthetic tdata & session fixtures
     ├── test_crypto.py               # Cryptographic primitive tests
     ├── test_hardware.py             # Hardware detection and resource allocation tests
     ├── test_parser_and_extractor.py # Zip-Slip, .tar.xz, TLV maps, 16-account & TDF$ tests
