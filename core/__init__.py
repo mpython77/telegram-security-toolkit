@@ -11,7 +11,7 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-__version__ = "2.0.0"
+__version__ = "1.0.0"
 
 from .crypto import (
     prepare_aes_oldmtp,

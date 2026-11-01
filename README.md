@@ -244,7 +244,7 @@ python main.py --patch
 Telegram_Security_Toolkit/
 │
 ├── README.md                        # Technical documentation and reference manual
-├── pyproject.toml                   # Standard Python packaging configuration (v2.0.0)
+├── pyproject.toml                   # Standard Python packaging configuration (v1.0.0)
 ├── requirements.txt                 # Project dependencies
 ├── .gitignore                       # Artifact and session exclusions
 ├── main.py                          # Unified CLI entry point and interactive menu
